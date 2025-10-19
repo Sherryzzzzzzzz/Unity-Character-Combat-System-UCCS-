@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dec1bb5df6369b440bd635afce52ed41, type: 3}
+  m_Name: GreatSwordLight3
+  m_EditorClassIdentifier: 
+  animationClip: {fileID: 7400000, guid: fb63dda3b9f133d45bcde0fa0b53d103, type: 3}
+  tracks: []
+  references:
+    version: 2
+    RefIds: []

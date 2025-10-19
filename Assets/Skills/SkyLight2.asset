@@ -1,0 +1,36 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dec1bb5df6369b440bd635afce52ed41, type: 3}
+  m_Name: SkyLight2
+  m_EditorClassIdentifier: 
+  animationClip: {fileID: 7400000, guid: 049fdb0f456732c48ae8f7514bd0c304, type: 3}
+  tracks:
+  - rid: 239021920755646470
+  references:
+    version: 2
+    RefIds:
+    - rid: 239021920755646470
+      type: {class: TimelineTrackData, ns: , asm: Assembly-CSharp}
+      data:
+        name: Track 1
+        type: 2
+        events:
+        - rid: 239021920755646471
+    - rid: 239021920755646471
+      type: {class: ComboEvent, ns: , asm: Assembly-CSharp}
+      data:
+        startFrame: 14
+        endFrame: 41
+        inputAction: {fileID: 7799172627580729296, guid: 8c5b06297daf11f46b9f9e9f9c52f1a8,
+          type: 3}
+        nextSkill: {fileID: 11400000, guid: 5132d591d468077499bf22848f6c7b90, type: 2}
+        triggerType: 0

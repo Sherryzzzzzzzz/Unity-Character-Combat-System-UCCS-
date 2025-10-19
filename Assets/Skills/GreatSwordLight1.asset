@@ -1,0 +1,59 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dec1bb5df6369b440bd635afce52ed41, type: 3}
+  m_Name: GreatSwordLight1
+  m_EditorClassIdentifier: 
+  animationClip: {fileID: 7400000, guid: 6bddcdfebb3a83e46991aa42b76c7259, type: 3}
+  tracks:
+  - rid: 239021895346290691
+  - rid: 239021895346290692
+  references:
+    version: 2
+    RefIds:
+    - rid: 239021849703088130
+      type: {class: ComboEvent, ns: , asm: Assembly-CSharp}
+      data:
+        startFrame: 13
+        endFrame: 42
+        inputAction: {fileID: 7799172627580729296, guid: 8c5b06297daf11f46b9f9e9f9c52f1a8,
+          type: 3}
+        nextSkill: {fileID: 11400000, guid: 94ae8d57d8488cc479eb54ed9190a4d3, type: 2}
+        triggerType: 0
+    - rid: 239021895346290691
+      type: {class: TimelineTrackData, ns: , asm: Assembly-CSharp}
+      data:
+        name: Track 1
+        type: 0
+        events:
+        - rid: 8319229974598385665
+        - rid: 8319229974598385666
+    - rid: 239021895346290692
+      type: {class: TimelineTrackData, ns: , asm: Assembly-CSharp}
+      data:
+        name: Track 2
+        type: 2
+        events:
+        - rid: 239021849703088130
+    - rid: 8319229974598385665
+      type: {class: AttackEvent, ns: , asm: Assembly-CSharp}
+      data:
+        startFrame: 7
+        endFrame: 10
+        hitBoxName: "\u6697\u6708\u5927\u5251"
+        damage: 10
+    - rid: 8319229974598385666
+      type: {class: AttackEvent, ns: , asm: Assembly-CSharp}
+      data:
+        startFrame: 0
+        endFrame: 0
+        hitBoxName: "\u6697\u6708\u5927\u5251"
+        damage: 10
