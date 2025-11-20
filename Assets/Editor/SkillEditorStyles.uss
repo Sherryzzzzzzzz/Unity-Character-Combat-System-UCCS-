@@ -1,0 +1,41 @@
+.event-clip--selected {
+    border-top-color: #3a97f7;
+    border-right-color: #3a97f7;
+    border-bottom-color: #3a97f7;
+    border-left-color: #62b1ff;
+    border-width: 1.5px;
+}
+
+.event-clip {
+    border-radius: 3px;
+}
+
+.event-clip__header {
+    height: 6px;
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+.event-clip__body {
+    flex-grow: 1;
+}
+
+.event-clip__handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    background-color: rgba(255, 255, 255, 0.15);
+    opacity: 0;
+}
+
+.event-clip:hover .event-clip__handle {
+    opacity: 1;
+}
+
+.track-content--even {
+    background-color: #383838;
+}
+
+.track-content--odd {
+    background-color: #323232;
+}

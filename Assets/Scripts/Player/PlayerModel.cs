@@ -48,6 +48,13 @@ public class PlayerModel : MonoBehaviour,IStateOwner
     
     public float walkSpeed = 3f;
     public float runSpeed = 10f;
+    public TagComponent tagComponent;
+    public GameplayTagSO LightAttackInputTag;
+    
+    public float detectRadius = 0.5f; // 检测半径
+    public LayerMask enemyLayer;     // 敌人层
+    public Transform nearestEnemy;   // 当前最近的敌人
+    public bool isHitting = false;
 
     private void Awake()
     {
@@ -57,6 +64,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner
         playerStateMachine = new StateMachine(this);
         cc = GetComponent<CharacterController>();
         pac = GetComponent<PlayerAttackComponent>();
+        tagComponent = GetComponent<TagComponent>();
     }
 
     void Start()
@@ -67,7 +75,25 @@ public class PlayerModel : MonoBehaviour,IStateOwner
     
     void Update()
     {
+        DetectNearestEnemy();
         isAttacking = pac.isPlaying;
+        isHitting = GetComponent<HurtBoxManager>().isHitting;
+
+        if (isAttacking)
+        {
+            // 如果有最近的敌人，就朝向它
+            if (nearestEnemy != null)
+            {
+                Vector3 lookDirection = nearestEnemy.position - transform.position;
+                lookDirection.y = 0; // 保持水平
+                if (lookDirection.sqrMagnitude > 0.01f)
+                {
+                    Quaternion targetRotation = Quaternion.LookRotation(lookDirection);
+                    transform.rotation =
+                        Quaternion.Slerp(transform.rotation, targetRotation, 15f * Time.deltaTime); // 用一个较快的速度转向
+                }
+            }
+        }
 
         if (pac.isPlaying)
         {
@@ -97,6 +123,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner
 
     public void ChangePlayerState(PlayerState state)
     {
+        Debug.Log(state.ToString());
         switch (state)
         {
             case PlayerState.ground:
@@ -113,29 +140,21 @@ public class PlayerModel : MonoBehaviour,IStateOwner
                 break;
         }
         _PlayerState = state;
-        Debug.Log(_PlayerState);
     }
 
     public void PlaySkill(SkillTimelineAsset skill = null)
     {
-        if (!isComboChain)
+        
+        switch (_PlayerState)
         {
-            switch (_PlayerState)
-            {
-                case PlayerState.ground:
-                    pac.PlaySkill(lightStart);  // ✅ 第一次播放起手式
-                    isComboChain = true;
-                    break;
-                case PlayerState.sky:
-                    pac.PlaySkill(lightSkyStart);
-                    isComboChain = true;
-                    break;
-            }
-            
-        }
-        else
-        {
-            pac.PlaySkill(skill ?? lightStart); // ✅ 后续由 ComboEvent 指定
+            case PlayerState.ground:
+                isComboChain = true;
+                pac.PlaySkill(lightStart);  // ✅ 第一次播放起手式
+                break;
+            case PlayerState.sky:
+                isComboChain = true;
+                pac.PlaySkill(lightSkyStart);
+                break;
         }
 
         currentSkill = skill ?? lightStart;
@@ -143,6 +162,8 @@ public class PlayerModel : MonoBehaviour,IStateOwner
     
     void OnAnimatorMove()
     {
+        if (animator == null) return;
+        
         if (cc != null && cc.enabled && !stopGravity)
         {
             bool isGrounded = PlayerController.Instance.isGround;
@@ -163,10 +184,39 @@ public class PlayerModel : MonoBehaviour,IStateOwner
             cc.Move(gravityVector * Time.deltaTime);
         }
         
-        if (animator == null) return;
-        
-        Vector3 deltaPosition = animator.deltaPosition;
-        cc.Move(deltaPosition);
-        transform.rotation *= animator.deltaRotation;
+        if ((isAttacking||isHitting) && animator != null)
+        {
+            Vector3 deltaPosition = animator.deltaPosition;
+            cc.Move(deltaPosition);
+        }
+    }
+    
+    private void DetectNearestEnemy()
+    {
+        Collider[] hits = Physics.OverlapSphere(transform.position, detectRadius, enemyLayer);
+
+        Transform closest = null;
+        float minDistance = Mathf.Infinity;
+
+        foreach (Collider hit in hits)
+        {
+            // 可以加个过滤条件，比如排除自己或非敌人
+            if (hit.transform == transform) continue;
+
+            float distance = Vector3.Distance(transform.position, hit.transform.position);
+            if (distance < minDistance)
+            {
+                minDistance = distance;
+                closest = hit.transform;
+            }
+        }
+
+        nearestEnemy = closest;
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.red;
+        Gizmos.DrawWireSphere(transform.position, detectRadius);
     }
 }

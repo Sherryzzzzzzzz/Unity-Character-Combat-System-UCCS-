@@ -61,12 +61,6 @@ public class PlayerGroundState : PlayerStateBase
             playerModel.ChangePlayerState(PlayerState.sky);
             return;
         }
-
-        if (playerController.lightAttack)
-        {
-            playerModel.ChangePlayerState(PlayerState.groundLightAttack);
-            return;
-        }
     }
 
 }

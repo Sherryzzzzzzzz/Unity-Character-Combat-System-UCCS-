@@ -2,7 +2,7 @@ using UnityEngine;
 using Animancer;
 
 [CreateAssetMenu(fileName = "PlayerAnimationSet", menuName = "Configs/PlayerAnimationSet")]
-public class PlayerAnimationSet : ScriptableObject
+public class  PlayerAnimationSet : ScriptableObject
 {
     [Header("基础动作")]
     public ClipTransition idle;

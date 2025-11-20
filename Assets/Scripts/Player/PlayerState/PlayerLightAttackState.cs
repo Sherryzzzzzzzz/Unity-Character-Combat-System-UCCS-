@@ -10,8 +10,6 @@ public class PlayerLightAttackState : PlayerStateBase
     public override void Enter()
     {
         base.Enter();
-        
-        playerModel.stopGravity = true;
 
         playerModel.isAttacking = true;
 
@@ -49,7 +47,6 @@ public class PlayerLightAttackState : PlayerStateBase
     public override void Exit()
     {
         base.Exit();
-        playerModel.stopGravity = false;
         playerModel.pac.OnSkillEnd -= OnSkillEnd;
         playerModel.pac.StopAndCleanup();
     }

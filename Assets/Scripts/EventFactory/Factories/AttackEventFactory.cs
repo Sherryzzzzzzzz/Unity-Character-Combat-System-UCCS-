@@ -13,14 +13,10 @@ public class AttackEventFactory : ITimelineEventFactory
     public TimelineEventBase Create()
     {
         // 默认生成一个持续 1 帧的攻击事件
-        return new AttackEvent
-        {
-            hitBoxName = "HitBox",
-            damage = 10f,
-            StartFrame = 0,
-            EndFrame = 1
-        };
+        return new AttackEvent();
     }
+    
+    public TimelineEventBase CreateEvent() => new AttackEvent(); 
 
     public VisualElement CreateInspector(TimelineEventBase evt)
     {
@@ -34,7 +30,7 @@ public class AttackEventFactory : ITimelineEventFactory
         hitBoxField.value = atk.hitBoxName;
         hitBoxField.RegisterValueChangedCallback(e => atk.hitBoxName = e.newValue);
         container.Add(hitBoxField);
-
+        
         // ==========================
         // 伤害值
         // ==========================
@@ -42,6 +38,53 @@ public class AttackEventFactory : ITimelineEventFactory
         dmgField.value = atk.damage;
         dmgField.RegisterValueChangedCallback(e => atk.damage = e.newValue);
         container.Add(dmgField);
+        
+        // ==========================
+        // 削韧值
+        // ==========================
+        var poiseField = new FloatField("poiseDamage");
+        poiseField.value = atk.poiseDamage;
+        poiseField.RegisterValueChangedCallback(e => atk.poiseDamage = e.newValue);
+        container.Add(poiseField);
+        
+        // ==========================
+        // 击飞力度
+        // ==========================
+        var forceField = new FloatField("forceDamage");
+        forceField.value = atk.hitForce;
+        forceField.RegisterValueChangedCallback(e => atk.hitForce = e.newValue);
+        container.Add(forceField);
+        
+        // ==========================
+        // 施加力度的帧
+        // ==========================
+        var forceFrameField = new FloatField("forceFrame");
+        forceFrameField.value = atk.hitFrame;
+        forceFrameField.RegisterValueChangedCallback(e =>
+        {
+            atk.hitFrame = Mathf.Max(0, e.newValue);
+            if(atk.hitFrame> atk.EndFrame)
+                atk.hitFrame = atk.EndFrame;
+            if(atk.hitFrame < atk.StartFrame)
+                atk.hitFrame = atk.StartFrame;
+        });
+        container.Add(forceFrameField);
+        
+        // ==========================
+        // 施加力度的方向
+        // ==========================
+        var hitPosField = new Vector3Field("hitPosition");
+        hitPosField.value = atk.hitPosition;
+        hitPosField.RegisterValueChangedCallback(e => atk.hitPosition = e.newValue);
+        container.Add(hitPosField);
+        
+        var typeModeField = new EnumField("力度", AttackForceType.None);
+        typeModeField.RegisterValueChangedCallback(e =>
+        {
+            atk.forceType = (AttackForceType)e.newValue;
+        });
+        typeModeField.value = atk.forceType;
+        container.Add(typeModeField);
 
         // ==========================
         // 帧区间（Start / End）

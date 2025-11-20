@@ -5,12 +5,6 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using Animancer;
 
-using Animancer;
-using UnityEngine;
-using UnityEngine.InputSystem;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 
 public class PlayerAttackComponent : MonoBehaviour
 {
@@ -41,10 +35,20 @@ public class PlayerAttackComponent : MonoBehaviour
     // === 新增：专用攻击层 ===
     private AnimancerLayer _AttackLayer;
     private int attackLayerIndex = 1; // 攻击层放在 Layer 1，底层 Layer 0 是移动/idle
+    
+    private TagComponent tagComponent;
+    
+    [Tooltip("开始一次新攻击（起手式）时的淡入时间")]
+    public float attackFadeInDuration = 0.2f;
+    [Tooltip("连接一次连招（Combo）时的淡入时间")]
+    public float comboFadeInDuration = 0.1f;
+    [Tooltip("攻击结束，过渡回 Idle/Move 时的淡出时间")]
+    public float attackFadeOutDuration = 0.25f;
 
     private void Awake()
     {
         _Animancer = GetComponent<AnimancerComponent>();
+        tagComponent = GetComponent<TagComponent>();
 
         // 初始化攻击层
         if (_Animancer.Layers.Count <= attackLayerIndex)
@@ -86,25 +90,47 @@ public class PlayerAttackComponent : MonoBehaviour
             var startsSnapshot = starts.ToArray();
             foreach (var evt in startsSnapshot)
             {
-                try { evt.OnStart(gameObject); }
-                catch (Exception ex) { Debug.LogError($"[PlayerAttackComponent] Start event exception: {ex}"); }
+                // OnStart 的调用保持不变
+                evt.OnStart(gameObject);
             }
 
-            // 连段检测
+            // ====================================================================
+            // --- 核心升级：同时检查瞬时 Tag 和缓存 Tag ---
+            // ====================================================================
             foreach (var evt in startsSnapshot)
             {
-                if (evt is ComboEvent combo && combo.triggerType == ComboTriggerType.Normal)
+                if (evt is ComboEvent combo)
                 {
-                    if (ConsumeCachedInputIfMatch(combo.inputAction))
+                    bool tagMatched = false;
+
+                    // --- 核心修正：根据模式调用不同的 TagComponent 方法 ---
+                    if (combo.comboMode == ComboEvent.ComboMode.Normal_Cacheable)
+                    {
+                        // Normal 模式使用消耗性的 ConsumeTag，它能同时处理实时和缓存输入
+                        tagMatched = tagComponent.ConsumeTag(combo.RequiredTag);
+                    }
+                    else // Strict_Immediate
+                    {
+                        // Strict 模式使用非消耗性的 HasTag，它只检查当前帧的瞬时输入
+                        tagMatched = tagComponent.HasTag(combo.RequiredTag);
+                    }
+
+                    // 后续逻辑完全不变
+                    if (tagMatched)
                     {
                         if (combo.nextSkill != null)
                         {
+                            // 如果是 Strict 模式匹配成功，它的 Tag 还在，我们也需要消耗掉它
+                            if (combo.comboMode == ComboEvent.ComboMode.Strict_Immediate)
+                            {
+                                tagComponent.ConsumeTag(combo.RequiredTag);
+                            }
+
                             var model = GetComponent<PlayerModel>();
                             if (model != null && isPlaying)
                             {
                                 model.isComboChain = true;
                                 model.isAttacking = true;
-                                //Debug.Log("[PlayerAttackComponent] 连段开始（Start 匹配）");
                             }
 
                             PlaySkill(combo.nextSkill);
@@ -114,7 +140,6 @@ public class PlayerAttackComponent : MonoBehaviour
                 }
             }
         }
-
         // ---------- End ----------
         if (frameEndEvents.TryGetValue(currentFrame, out var ends))
         {
@@ -136,43 +161,26 @@ public class PlayerAttackComponent : MonoBehaviour
     // ========== 播放技能 ==========
     public void PlaySkill(SkillTimelineAsset skill)
     {
-        if (skill == null)
-        {
-            //Debug.LogError("[PlayerAttackComponent] PlaySkill called with null skill.");
-            return;
-        }
-
-        if (isPlaying && currentSkill == skill) return;
-        if (isSwitching) return;
+        if (skill == null) return;
+        if (isSwitching || (isPlaying && currentSkill == skill)) return;
 
         isSwitching = true;
 
+        bool isCombo = isPlaying;
+
         var model = GetComponent<PlayerModel>();
-        if (isPlaying && model != null)
+        if (model != null)
         {
-            model.isComboChain = true;
-            model.isAttacking = true;
-            //Debug.Log("[PlayerAttackComponent] PlaySkill: 连段衔接标记 isComboChain=true");
+            model.isComboChain = isCombo;
+            model.isAttacking = true; // isAttacking 由 PlayerModel 的 SuperState 控制会更好，但暂时先这样
         }
 
-        // 结束上一个事件（快照）
-        if (isPlaying)
-        {
-            var endEventsSnapshot = frameEndEvents.Values.SelectMany(v => v).ToList();
-            foreach (var evt in endEventsSnapshot)
-            {
-                try { evt.OnEnd(gameObject); }
-                catch (Exception ex) { Debug.LogError($"[PlayerAttackComponent] OnEnd exception during switch: {ex}"); }
-            }
-        }
-
+        // --- 清理和注册事件 (逻辑不变) ---
         currentSkill = skill;
         isPlaying = true;
         currentFrame = 0;
         frameStartEvents.Clear();
         frameEndEvents.Clear();
-
-        // 注册事件
         if (skill.tracks != null)
         {
             foreach (var track in skill.tracks)
@@ -194,20 +202,24 @@ public class PlayerAttackComponent : MonoBehaviour
             }
         }
 
-        // 播放到攻击层
+        // --- 核心修改：使用交叉淡入来播放动画 ---
         if (_AttackLayer != null && skill.animationClip != null)
         {
             _AttackAnimation = skill.animationClip;
-            var state = _AttackLayer.Play(_AttackAnimation, 0.06f, FadeMode.FixedSpeed);
-            state.Speed = 1f;
-            _AttackLayer.SetWeight(1f); // 激活攻击层
 
+            // 根据是起手还是连招，选择不同的淡入时间
+            float fadeDuration = isCombo ? comboFadeInDuration : attackFadeInDuration;
+            
+            // Play 方法本身就会执行交叉淡入，它会平滑地从当前正在播放的动画过渡到新动画
+            var state = _AttackLayer.Play(_AttackAnimation, fadeDuration, FadeMode.FromStart);
+
+            // 确保攻击层的权重是1
+            _AttackLayer.SetWeight(1f);
+            
             maxFrame = Mathf.RoundToInt(state.Clip.length * state.Clip.frameRate);
-            //Debug.Log($"[PlayerAttackComponent] PlaySkill -> {skill.name} ({maxFrame} frames) on AttackLayer");
         }
         else
         {
-            //Debug.LogWarning("[PlayerAttackComponent] PlaySkill: animationClip is null.");
             maxFrame = 0;
         }
 
@@ -247,11 +259,20 @@ public class PlayerAttackComponent : MonoBehaviour
             if (clearCache)
             {
                 model.isComboChain = false;
-                model.isAttacking = false;
+                // isAttacking 会在下一帧的 Update 中自动变为 false
+            }
+        
+            // 确保在攻击结束后，状态机可以回到正确的地面或空中状态
+            if (PlayerController.Instance.isGround)
+            {
+                model.ChangePlayerState(PlayerState.ground);
+            }
+            else
+            {
+                model.ChangePlayerState(PlayerState.sky);
             }
         }
 
-        //Debug.Log("[PlayerAttackComponent] StopAndCleanup executed (AttackLayer).");
         OnSkillEnd?.Invoke();
     }
 

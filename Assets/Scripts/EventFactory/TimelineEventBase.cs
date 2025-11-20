@@ -24,6 +24,8 @@ public abstract class TimelineEventBase
         get => Mathf.Min(startFrame, endFrame);
         set => startFrame = value;
     }
+    
+    public abstract TimelineEventBase Clone(); 
 
     public int EndFrame
     {
@@ -38,6 +40,7 @@ public abstract class TimelineEventBase
 public interface ITimelineEventRuntime
 {
     void OnStart(GameObject owner);
+    
     void OnEnd(GameObject owner);
 }
 
@@ -46,6 +49,7 @@ public interface ITimelineEventFactory
 {
     TimelineEventType Type { get; }
     TimelineEventBase Create();
+    TimelineEventBase CreateEvent();
     VisualElement CreateInspector(TimelineEventBase evt);
 }
 

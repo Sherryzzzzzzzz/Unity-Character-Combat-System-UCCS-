@@ -27,11 +27,21 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     public bool lightAttack{ get;private set; }
     #endregion
 
+    private TagComponent tagComponent;
+    [Header("Input Actions")]
+    public List<CustomInputAction> inputActions;
+    
     private void Awake()
     {
+        tagComponent = playerModel.tagComponent;
         input = new PlayerInputAction();
         cameraTransform = Camera.main.transform;
         Cursor.lockState = CursorLockMode.Locked;
+        
+        foreach (var action in inputActions)
+        {
+            action.Initialize(tagComponent);
+        }
     }
 
     private void OnEnable()
@@ -46,7 +56,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     
     public bool IsGrounded()
     {
-        float radius = playerModel.cc.radius * 1.3f;
+        float radius = playerModel.cc.radius * 0.8f;
         Vector3 spherePos = playerModel.cc.bounds.center 
                             + Vector3.down * (playerModel.cc.height / 2 - playerModel.cc.radius + 0.5f);
 
@@ -106,7 +116,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         movement = input.Simple.Move.ReadValue<Vector2>();
         jump = input.Simple.Jump.IsPressed();
         running = input.Simple.Run.IsPressed();
-        lightAttack = input.Simple.LightAttack.IsPressed();
+        lightAttack = input.Simple.LightAttack.WasPressedThisFrame();
 
         #endregion
         
@@ -143,6 +153,13 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         worldMovement = cameraForward * movement.y + cameraTransform.right * movement.x;
         localMovement = playerModel.transform.InverseTransformVector(worldMovement);
         #endregion
+        
+        if (lightAttack)
+        {
+            if(!playerModel.isAttacking)
+                playerModel.ChangePlayerState(PlayerState.groundLightAttack);
+            tagComponent.AddTransientTag(playerModel.LightAttackInputTag);
+        }
     }
 
     private void FixedUpdate()
