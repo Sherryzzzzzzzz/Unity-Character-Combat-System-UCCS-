@@ -25,6 +25,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     public bool jump{ get;private set; }
     public bool running{ get;private set; } = false;
     public bool lightAttack{ get;private set; }
+    public bool defend{ get;private set; }
     #endregion
 
     private TagComponent tagComponent;
@@ -117,6 +118,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         jump = input.Simple.Jump.IsPressed();
         running = input.Simple.Run.IsPressed();
         lightAttack = input.Simple.LightAttack.WasPressedThisFrame();
+        defend = input.Simple.Parry.IsPressed();
 
         #endregion
         
@@ -160,6 +162,8 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
                 playerModel.ChangePlayerState(PlayerState.groundLightAttack);
             tagComponent.AddTransientTag(playerModel.LightAttackInputTag);
         }
+
+        playerModel.isDefending = defend;
     }
 
     private void FixedUpdate()

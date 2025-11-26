@@ -39,5 +39,9 @@ public class IdleState : PlayerStateBase
             playerModel.ChangeAnimationState(PlayerAnimationState.fall);
         }
         
+        if (playerController.defend)
+        {
+            playerModel.ChangeAnimationState(PlayerAnimationState.parry);
+        }
     }
 }

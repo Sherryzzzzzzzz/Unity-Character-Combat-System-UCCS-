@@ -6,20 +6,20 @@ using Animancer;
 
 public enum PlayerAnimationState
 {
-    idle,move,jump,fall
+    idle,move,jump,fall,parry
 }
 
 public enum PlayerState
 {
-    ground,sky,groundLightAttack,skyLightAttack
+    ground,sky,groundLightAttack,skyLightAttack,parry
 }
 
-public class PlayerModel : MonoBehaviour,IStateOwner
+public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorController
 {
     private StateMachine animationStateMachine;
     private StateMachine playerStateMachine;
-    private PlayerAnimationState _PlayerAnimationState;
-    private PlayerState _PlayerState;
+    public PlayerAnimationState _PlayerAnimationState{ get; private set; }
+    public PlayerState _PlayerState{ get; private set; }
     [SerializeField] 
     public AnimancerComponent animancer;
     
@@ -29,10 +29,13 @@ public class PlayerModel : MonoBehaviour,IStateOwner
 
     public PlayerAttackComponent pac;
 
+    // 技能动画资源
     public SkillTimelineAsset lightStart;//轻攻击起手式
     public SkillTimelineAsset lightSkyStart;//空中轻攻击起手式
+    
     public SkillTimelineAsset currentSkill;
     public bool isAttacking = false;
+    private bool _behaviorDisabled = false;
     
     
     #region 重力相关
@@ -55,6 +58,16 @@ public class PlayerModel : MonoBehaviour,IStateOwner
     public LayerMask enemyLayer;     // 敌人层
     public Transform nearestEnemy;   // 当前最近的敌人
     public bool isHitting = false;
+    public bool isDefending = false;
+    
+    //弹反测试
+    public ClipTransition Parry_Start;
+    public ClipTransition Guard_Loop;
+    public ClipTransition Parry_End;
+        
+    public GameplayTagSO PerfectParryTag; // 在 Inspector 中拖入 "State.Parrying.Perfect"
+    public GameplayTagSO NormalParryTag;  // 在 Inspector 中拖入 "State.Parrying.Normal"
+    public GameplayTagSO GuardStanceTag;  // 在 Inspector 中拖入 "State.Guarding"
 
     private void Awake()
     {
@@ -75,6 +88,8 @@ public class PlayerModel : MonoBehaviour,IStateOwner
     
     void Update()
     {
+        if (_behaviorDisabled) return;
+        
         DetectNearestEnemy();
         isAttacking = pac.isPlaying;
         isHitting = GetComponent<HurtBoxManager>().isHitting;
@@ -117,6 +132,9 @@ public class PlayerModel : MonoBehaviour,IStateOwner
             case PlayerAnimationState.fall:
                 animationStateMachine.EnterState<FallState>();
                 break;
+            case PlayerAnimationState.parry:
+                animationStateMachine.EnterState<ParryState>();
+                break;
         }
         _PlayerAnimationState = animationState;
     }
@@ -138,14 +156,17 @@ public class PlayerModel : MonoBehaviour,IStateOwner
             case PlayerState.skyLightAttack:
                 playerStateMachine.EnterState<PlayerSkyLightAttackState>();
                 break;
+            case PlayerState.parry:
+                playerStateMachine.EnterState<PlayerParryState>();
+                break;
         }
         _PlayerState = state;
     }
 
     public void PlaySkill(SkillTimelineAsset skill = null)
     {
-        
-        switch (_PlayerState)
+        if(isHitting) return;
+        switch (_PlayerState) 
         {
             case PlayerState.ground:
                 isComboChain = true;
@@ -218,5 +239,15 @@ public class PlayerModel : MonoBehaviour,IStateOwner
     {
         Gizmos.color = Color.red;
         Gizmos.DrawWireSphere(transform.position, detectRadius);
+    }
+    
+    public void InterruptAndDisableBehavior()
+    {
+        _behaviorDisabled = true;
+    }
+
+    public void ResumeBehavior()
+    {
+        _behaviorDisabled = false;
     }
 }

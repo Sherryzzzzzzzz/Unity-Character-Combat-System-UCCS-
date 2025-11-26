@@ -61,6 +61,12 @@ public class PlayerGroundState : PlayerStateBase
             playerModel.ChangePlayerState(PlayerState.sky);
             return;
         }
+        
+        if (playerController.defend && !playerModel.isAttacking)
+        {
+            playerModel.ChangePlayerState(PlayerState.parry);
+            return;
+        }
     }
 
 }

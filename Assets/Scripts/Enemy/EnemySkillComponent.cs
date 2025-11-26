@@ -1,5 +1,6 @@
 // 文件名: EnemySkillComponent.cs
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
@@ -28,10 +29,20 @@ public class EnemySkillComponent : MonoBehaviour
     // --- Animancer 层级管理 ---
     private AnimancerLayer _attackLayer;
     private int _attackLayerIndex = 1; // 攻击动画在第1层播放
+    
+    private TagComponent _tagComponent; // 用于施加拼刀硬直 Tag
+    
+    [Header("Clash Configuration")]
+    [Tooltip("代表“拼刀硬直”的状态 Tag (GameplayTagSO)")]
+    public GameplayTagSO clashStunTag; // *** 在 Inspector 中拖入 "State.Clash.Stun" ***
+    
+    private bool _isClashed = false; // 拼刀状态锁
+
 
     private void Awake()
     {
         _animancer = GetComponent<AnimancerComponent>();
+        _tagComponent = GetComponent<TagComponent>();
 
         // 初始化攻击层
         if (_animancer.Layers.Count <= _attackLayerIndex)
@@ -117,6 +128,11 @@ public class EnemySkillComponent : MonoBehaviour
     /// </summary>
     public void ManualUpdate()
     {
+        if (_isClashed)
+        {
+            return;
+        }
+        
         if (!IsPlaying || _currentSkill == null || _attackLayer.CurrentState == null) return;
         
         var state = _attackLayer.CurrentState;
@@ -172,4 +188,100 @@ public class EnemySkillComponent : MonoBehaviour
         // 触发 OnSkillEnd 事件，通知行为树或其他系统技能已结束
         OnSkillEnd?.Invoke();
     }
+    
+    #region IClashable Implementation (接口实现)
+
+    public GameObject GetGameObject()
+    {
+        return this.gameObject;
+    }
+    
+    public int GetClashLevel()
+    {
+        if (IsPlaying && _currentSkill != null)
+        {
+            // 从当前技能的第一个 AttackEvent 中获取 clashLevel
+            var attackEvent = _currentSkill.tracks
+                .SelectMany(t => t.events)
+                .OfType<AttackEvent>()
+                .FirstOrDefault();
+            
+            // 使用 attackEvent 的 forceType 作为拼刀等级
+            return attackEvent != null ? (int)attackEvent.forceType : 0;
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// 当 ClashManager 裁定此角色需要执行拼刀反弹时，调用此方法。
+    /// </summary>
+    public void OnClash(ClashResult result)
+    {
+        StartCoroutine(ClashSequence(result));
+    }
+
+    /// <summary>
+    /// 处理拼刀“卡肉”、击退、硬直的完整协程。
+    /// </summary>
+    private IEnumerator ClashSequence(ClashResult result)
+    {
+        // 1. 开启状态锁，暂停 ManualUpdate 逻辑
+        _isClashed = true;
+
+        // 2. 冻结动画，制造“卡肉”效果
+        if (_attackLayer.CurrentState != null)
+        {
+            _attackLayer.CurrentState.Speed = 0;
+        }
+
+        // 3. 手动添加“拼刀硬直”Tag
+        if (clashStunTag != null && _tagComponent != null)
+        {
+            _tagComponent.AddTag(clashStunTag);
+        }
+        
+        // 4. 短暂等待，增强打击感
+        yield return new WaitForSecondsRealtime(0.1f); // 使用 Realtime 避免受 Time.timeScale 影响
+
+        // 5. 恢复动画播放
+        if (_attackLayer.CurrentState != null)
+        {
+            _attackLayer.CurrentState.Speed = 1;
+        }
+        
+        // 6. 应用击退效果
+        var cc = GetComponent<CharacterController>();
+        if (cc != null)
+        {
+            float timer = 0f;
+            float knockbackDuration = 0.3f;
+            while (timer < knockbackDuration)
+            {
+                float speed = result.KnockbackForce * (1f - (timer / knockbackDuration));
+                cc.Move(result.KnockbackDirection * speed * Time.deltaTime);
+                timer += Time.deltaTime;
+                yield return null;
+            }
+        }
+
+        // 7. 等待硬直时间结束
+        float remainingStun = result.StunDuration - 0.1f;
+        if (remainingStun > 0)
+        {
+            yield return new WaitForSeconds(remainingStun);
+        }
+
+        // 8. 硬直结束，调用 StopAndCleanup 来安全重置，并解锁
+        StopAndCleanup();
+        
+        // 9. 手动移除“拼刀硬直”Tag
+        if (clashStunTag != null && _tagComponent != null)
+        {
+            _tagComponent.RemoveTag(clashStunTag);
+        }
+        
+        _isClashed = false; // 解除锁定
+    }
+
+    #endregion
 }

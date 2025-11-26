@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using BehaviorDesigner.Runtime;
 using UnityEngine;
 
-public class EnemyModel : MonoBehaviour,IStateOwner
+public class EnemyModel : MonoBehaviour,IStateOwner,Parryable.IBehaviorController
 {
     private CharacterController cc;
     public float speed;
@@ -49,5 +49,21 @@ public class EnemyModel : MonoBehaviour,IStateOwner
             }   
         }
         angle = Vector3.SignedAngle(new Vector3(moveDir.x, 0, moveDir.y), transform.forward, Vector3.up);
+    }
+    
+    public void InterruptAndDisableBehavior()
+    {
+        if (tree != null)
+        {
+            tree.DisableBehavior();
+        }
+    }
+
+    public void ResumeBehavior()
+    {
+        if (tree != null)
+        {
+            tree.EnableBehavior();
+        }
     }
 }

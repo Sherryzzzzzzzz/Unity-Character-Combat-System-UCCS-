@@ -80,6 +80,15 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""Parry"",
+                    ""type"": ""Button"",
+                    ""id"": ""3faa89b4-b714-42df-82f2-eaae4ddd79eb"",
+                    ""expectedControlType"": ""Button"",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
                 }
             ],
             ""bindings"": [
@@ -269,6 +278,17 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""action"": ""LightAttack"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""deba1326-e167-40cd-a44c-5a316711374f"",
+                    ""path"": ""<Mouse>/rightButton"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Parry"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
                 }
             ]
         }
@@ -300,6 +320,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
         m_Simple_Climb = m_Simple.FindAction("Climb", throwIfNotFound: true);
         m_Simple_MousesXY = m_Simple.FindAction("MousesXY", throwIfNotFound: true);
         m_Simple_LightAttack = m_Simple.FindAction("LightAttack", throwIfNotFound: true);
+        m_Simple_Parry = m_Simple.FindAction("Parry", throwIfNotFound: true);
     }
 
     public void Dispose()
@@ -367,6 +388,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
     private readonly InputAction m_Simple_Climb;
     private readonly InputAction m_Simple_MousesXY;
     private readonly InputAction m_Simple_LightAttack;
+    private readonly InputAction m_Simple_Parry;
     public struct SimpleActions
     {
         private @PlayerInputAction m_Wrapper;
@@ -377,6 +399,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
         public InputAction @Climb => m_Wrapper.m_Simple_Climb;
         public InputAction @MousesXY => m_Wrapper.m_Simple_MousesXY;
         public InputAction @LightAttack => m_Wrapper.m_Simple_LightAttack;
+        public InputAction @Parry => m_Wrapper.m_Simple_Parry;
         public InputActionMap Get() { return m_Wrapper.m_Simple; }
         public void Enable() { Get().Enable(); }
         public void Disable() { Get().Disable(); }
@@ -404,6 +427,9 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
             @LightAttack.started += instance.OnLightAttack;
             @LightAttack.performed += instance.OnLightAttack;
             @LightAttack.canceled += instance.OnLightAttack;
+            @Parry.started += instance.OnParry;
+            @Parry.performed += instance.OnParry;
+            @Parry.canceled += instance.OnParry;
         }
 
         private void UnregisterCallbacks(ISimpleActions instance)
@@ -426,6 +452,9 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
             @LightAttack.started -= instance.OnLightAttack;
             @LightAttack.performed -= instance.OnLightAttack;
             @LightAttack.canceled -= instance.OnLightAttack;
+            @Parry.started -= instance.OnParry;
+            @Parry.performed -= instance.OnParry;
+            @Parry.canceled -= instance.OnParry;
         }
 
         public void RemoveCallbacks(ISimpleActions instance)
@@ -460,5 +489,6 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
         void OnClimb(InputAction.CallbackContext context);
         void OnMousesXY(InputAction.CallbackContext context);
         void OnLightAttack(InputAction.CallbackContext context);
+        void OnParry(InputAction.CallbackContext context);
     }
 }

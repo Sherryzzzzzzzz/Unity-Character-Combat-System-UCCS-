@@ -123,6 +123,10 @@ public class MoveState : PlayerStateBase
         {
             playerModel.ChangeAnimationState(PlayerAnimationState.fall);
         }
+        if (playerController.defend)
+        {
+            playerModel.ChangeAnimationState(PlayerAnimationState.parry);
+        }
         if (playerController.movement.magnitude == 0)
         {
             if (playerController.running)

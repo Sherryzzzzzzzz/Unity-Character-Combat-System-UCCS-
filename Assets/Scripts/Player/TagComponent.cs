@@ -6,6 +6,11 @@ public class TagComponent : MonoBehaviour
     private HashSet<GameplayTagSO> activeTags = new HashSet<GameplayTagSO>();
     private HashSet<GameplayTagSO> transientTags = new HashSet<GameplayTagSO>();
     
+    // --- 新增：Buff 管理系统 ---
+    private readonly List<Buff> activeBuffs = new List<Buff>();
+    // 用字典快速查找，避免重复添加
+    private readonly Dictionary<BuffSO, Buff> _buffLookup = new Dictionary<BuffSO, Buff>();
+    
     private class CachedTag { public GameplayTagSO Tag; public float Timestamp; }
     private readonly List<CachedTag> cachedTags = new List<CachedTag>();
     private const float CACHE_DURATION = 0.25f;
@@ -17,6 +22,17 @@ public class TagComponent : MonoBehaviour
             if (Time.time - cachedTags[i].Timestamp > CACHE_DURATION)
             {
                 cachedTags.RemoveAt(i);
+            }
+        }
+        
+        // 更新 Buff
+        for (int i = activeBuffs.Count - 1; i >= 0; i--)
+        {
+            var buff = activeBuffs[i];
+            buff.Tick(Time.deltaTime);
+            if (buff.IsFinished)
+            {
+                RemoveBuff(buff);
             }
         }
     }
@@ -117,5 +133,69 @@ public class TagComponent : MonoBehaviour
             }
         }
         return false;
+    }
+    
+    /// <summary>
+    /// 向此角色施加一个 Buff。
+    /// </summary>
+    public void ApplyBuff(BuffSO buffData, GameObject instigator)
+    {
+        if (buffData == null) return;
+
+        if (_buffLookup.TryGetValue(buffData, out var existingBuff))
+        {
+            // --- 处理已存在的 Buff (刷新或叠加) ---
+            switch (buffData.stackingType)
+            {
+                case BuffStackingType.Refresh:
+                    existingBuff.Refresh();
+                    break;
+                case BuffStackingType.Stack:
+                    existingBuff.AddStack();
+                    break;
+                case BuffStackingType.None:
+                default:
+                    // 不可叠加，直接忽略
+                    break;
+            }
+        }
+        else
+        {
+            // --- 添加新的 Buff ---
+            var newBuff = new Buff(buffData, instigator, this.gameObject);
+            activeBuffs.Add(newBuff);
+            _buffLookup.Add(buffData, newBuff);
+            
+            // 授予 Buff 附带的 Tag
+            if (buffData.gameplayTag != null)
+            {
+                AddTag(buffData.gameplayTag);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 移除一个 Buff。
+    /// </summary>
+    public void RemoveBuff(BuffSO buffData)
+    {
+        if (buffData == null) return;
+        if (_buffLookup.TryGetValue(buffData, out var buffToRemove))
+        {
+            RemoveBuff(buffToRemove);
+        }
+    }
+
+    // 内部移除方法
+    private void RemoveBuff(Buff buff)
+    {
+        // 移除 Buff 附带的 Tag
+        if (buff.Data.gameplayTag != null)
+        {
+            RemoveTag(buff.Data.gameplayTag);
+        }
+        
+        activeBuffs.Remove(buff);
+        _buffLookup.Remove(buff.Data);
     }
 }

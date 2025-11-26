@@ -10,7 +10,10 @@ public enum TimelineEventType
     HitBox,
     Combo,
     Effect,
-    Sound
+    Sound,
+    Buff,
+    Loop,
+    Branch
 }
 
 [Serializable]

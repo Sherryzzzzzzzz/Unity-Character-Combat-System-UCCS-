@@ -17,6 +17,9 @@ public static class TimelineEventFactoryBootstrap
         EventFactoryRegistry.Register(new ComboEventFactory());
         EventFactoryRegistry.Register(new EffectEventFactory()); 
         EventFactoryRegistry.Register(new SoundEventFactory());
+        EventFactoryRegistry.Register(new BuffEventFactory());
+        EventFactoryRegistry.Register(new BranchEventFactory());
+        EventFactoryRegistry.Register(new LoopEventFactory());
     }
 }
 #endregion
@@ -362,7 +365,7 @@ public class SkillEditorTimelineWindow : EditorWindow
         header.Add(leftContainer);
 
         // 2. 将图标和文本框放入左侧容器
-        leftContainer.Add(new Image { 
+        header.Add(new Image { 
             image = GetIconForType(data.type), 
             scaleMode = ScaleMode.ScaleToFit, 
             style = { width = 16, height = 16 }
@@ -703,6 +706,9 @@ public class SkillEditorTimelineWindow : EditorWindow
             case TimelineEventType.Combo:  return EditorGUIUtility.IconContent("d_UnityEditor.AnimationWindow").image;
             case TimelineEventType.Effect : return EditorGUIUtility.IconContent("d_ParticleSystem Icon").image;
             case TimelineEventType.Sound: return EditorGUIUtility.IconContent("d_AudioSource Icon").image;
+            case TimelineEventType.Buff: return EditorGUIUtility.IconContent("d_FilterByType").image;
+            case TimelineEventType.Loop: return EditorGUIUtility.IconContent("AnimationClip Icon").image;
+            case TimelineEventType.Branch: return EditorGUIUtility.IconContent("d_Animation.NextKey").image;
             default: return EditorGUIUtility.IconContent("d_DefaultAsset").image;
         }
     }
@@ -729,6 +735,9 @@ public class SkillEditorTimelineWindow : EditorWindow
             case TimelineEventType.Combo: return new Color(0.25f, 0.9f, 0.35f);
             case TimelineEventType.Effect: return new Color(0.9f, 0.75f, 0.2f);
             case TimelineEventType.Sound: return new Color(0.8f, 0.5f, 1f);
+            case TimelineEventType.Buff: return new Color(0.5f, 0.5f, 0.5f);
+            case TimelineEventType.Loop: return new Color(0.3f, 0.8f, 0.8f);
+            case TimelineEventType.Branch: return new Color(0.85f, 0.85f, 0.8f);
             default: return Color.gray;
         }
     }
