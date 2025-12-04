@@ -23,7 +23,7 @@ public class ClashManager : MonoBehaviour
 
     // --- 内部引用 ---
     private AudioSource audioSource;
-    // CinemachineBrain 通常在主相机上，不再需要手动引用
+    public float freezeDuration = 0.15f; 
 
     private void Awake()
     {
@@ -36,13 +36,17 @@ public class ClashManager : MonoBehaviour
         _clashLookAtTarget.SetParent(this.transform); // 放在 Manager 下方便管理
     }
 
-    /// <summary>
-    /// 裁定一次拼刀的结果。
-    /// </summary>
     public void ResolveClash(IClashable unitA, IClashable unitB)
     {
         if (unitA == null || unitB == null) return;
+        Debug.Log("ClashManager: Clash started between " + unitA.GetGameObject().name + " and " + unitB.GetGameObject().name);
+        // 立即启动导演协程
+        StartCoroutine(DirectClashSequence(unitA, unitB));
+    }
 
+    private IEnumerator DirectClashSequence(IClashable unitA, IClashable unitB)
+    {
+        // --- 准备阶段 ---
         GameObject unitA_GO = unitA.GetGameObject();
         GameObject unitB_GO = unitB.GetGameObject();
 
@@ -51,7 +55,20 @@ public class ClashManager : MonoBehaviour
         if (clashVFX != null) Instantiate(clashVFX, clashPoint, Quaternion.identity);
         if (clashSound != null) audioSource.PlayOneShot(clashSound);
 
-        // --- 计算结果 ---
+        // --- 导演喊“卡！” ---
+        // 1. 命令双方立即冻结动画
+        unitA.FreezeAnimation();
+        unitB.FreezeAnimation();
+
+        // 2. 切换到对决镜头
+        SwitchToClashCamera(unitA_GO.transform, unitB_GO.transform);
+
+        // --- “卡肉”阶段 ---
+        // 3. 全局等待 freezeDuration
+        yield return new WaitForSeconds(freezeDuration);
+
+        // --- 导演喊“开始！” ---
+        // 4. 计算最终结果
         int levelA = unitA.GetClashLevel();
         int levelB = unitB.GetClashLevel();
         int levelDifference = levelA - levelB;
@@ -60,23 +77,25 @@ public class ClashManager : MonoBehaviour
         {
             StunDuration = Mathf.Max(0.1f, baseStunDuration * (1f - (levelDifference * levelMultiplier))),
             KnockbackForce = baseKnockbackForce,
-            KnockbackDirection = (unitA_GO.transform.position - unitB_GO.transform.position).normalized
+            // 击退方向 = 从碰撞中心点指向自己
+            KnockbackDirection = (unitA_GO.transform.position - clashPoint).normalized
         };
 
         ClashResult resultB = new ClashResult
         {
             StunDuration = Mathf.Max(0.1f, baseStunDuration * (1f + (levelDifference * levelMultiplier))),
             KnockbackForce = baseKnockbackForce,
-            KnockbackDirection = (unitB_GO.transform.position - unitA_GO.transform.position).normalized
+            KnockbackDirection = (unitB_GO.transform.position - clashPoint).normalized
         };
-
-        // --- 命令双方执行结果 ---
-        unitA.OnClash(resultA);
-        unitB.OnClash(resultB);
         
-        // --- 运镜 ---
-        // *** 修复 2：确保这是直接的方法调用 ***
-        SwitchToClashCamera(unitA_GO.transform, unitB_GO.transform);
+        // 5. 命令双方恢复动画并执行后续效果
+        unitA.ResumeAndExecuteClash(resultA);
+        unitB.ResumeAndExecuteClash(resultB);
+        
+        // 6. 启动相机恢复计时
+        // (总时长 = 卡肉 + 最长硬直)
+        float totalDuration = freezeDuration + Mathf.Max(resultA.StunDuration, resultB.StunDuration);
+        StartCoroutine(ReturnToMainCamera(totalDuration));
     }
     
     private void SwitchToClashCamera(Transform targetA, Transform targetB)

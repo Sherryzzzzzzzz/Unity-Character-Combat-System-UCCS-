@@ -13,12 +13,13 @@ public struct ClashResult
 /// <summary>
 /// 定义了任何“可拼刀”对象必须实现的行为。
 /// </summary>
+// 文件名: IClashable.cs
 public interface IClashable
 {
-    // 暴露一些属性供裁判读取
     GameObject GetGameObject();
     int GetClashLevel();
     
-    // 接收来自裁判的指令
-    void OnClash(ClashResult result);
+    void FreezeAnimation();
+    
+    void ResumeAndExecuteClash(ClashResult result);
 }

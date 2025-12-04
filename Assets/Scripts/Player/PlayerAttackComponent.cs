@@ -55,6 +55,8 @@ public class PlayerAttackComponent : MonoBehaviour,IClashable
     public GameplayTagSO clashStunTag; // *** 在 Inspector 中拖入 "State.Clash.Stun" ***
     
     private bool _isClashed = false; // 拼刀状态锁
+    
+    public List<ClashDetector> _clashDetectors { get; private set; }
 
     private void Awake()
     {
@@ -68,6 +70,7 @@ public class PlayerAttackComponent : MonoBehaviour,IClashable
         _AttackLayer = _Animancer.Layers[attackLayerIndex];
         
         _AttackLayer.SetWeight(0f);
+        _clashDetectors = new List<ClashDetector>(GetComponentsInChildren<ClashDetector>(true));
     }
 
     private void Update()
@@ -244,6 +247,11 @@ public class PlayerAttackComponent : MonoBehaviour,IClashable
             model.isComboChain = isCombo;
             model.isAttacking = true; // isAttacking 由 PlayerModel 的 SuperState 控制会更好，但暂时先这样
         }
+        
+        foreach (var detector in _clashDetectors)
+        {
+            detector.Activate();
+        }
 
         // --- 清理和注册事件 (逻辑不变) ---
         currentSkill = skill;
@@ -316,6 +324,11 @@ public class PlayerAttackComponent : MonoBehaviour,IClashable
         maxFrame = 0;
         activeLoopEvents.Clear();
         activeBranchEvents.Clear();
+        
+        foreach (var detector in _clashDetectors)
+        {
+            detector.Deactivate();
+        }
 
         // 渐隐攻击层权重
         if (_AttackLayer != null)
@@ -392,44 +405,48 @@ public class PlayerAttackComponent : MonoBehaviour,IClashable
         return 0;
     }
 
-    public void OnClash(ClashResult result)
+    public void FreezeAnimation()
     {
-        StartCoroutine(ClashSequence(result));
-    }
-
-    private IEnumerator ClashSequence(ClashResult result)
-    {
-        // 1. 开启状态锁，暂停 Update 逻辑
+        // 1. 开启状态锁
         _isClashed = true;
-
-        // 2. 冻结动画，制造“卡肉”效果
+        
+        // 2. 冻结动画
         if (_AttackLayer.CurrentState != null)
         {
             _AttackLayer.CurrentState.Speed = 0;
+            Debug.Log($"'{gameObject.name}' Animation Frozen.");
         }
+    }
 
-        // 3. *** 核心修改：使用你已有的 TagComponent 方法 ***
-        //    手动添加“拼刀硬直”Tag
-        if (clashStunTag != null)
-        {
-            tagComponent.AddTag(clashStunTag);
-        }
-        
-        // 4. 短暂等待，增强打击感
-        yield return new WaitForSecondsRealtime(0.1f);
+    /// <summary>
+    /// 接到导演的“开始”指令。
+    /// </summary>
+    public void ResumeAndExecuteClash(ClashResult result)
+    {
+        // 启动一个专门处理后续效果的协程
+        StartCoroutine(ClashAftermathSequence(result));
+    }
 
-        // 5. 恢复动画播放
+    private IEnumerator ClashAftermathSequence(ClashResult result)
+    {
+        // 1. 恢复动画播放（它会从被冻结的那一帧继续）
         if (_AttackLayer.CurrentState != null)
         {
             _AttackLayer.CurrentState.Speed = 1;
         }
-        
-        // 6. 应用击退效果
+
+        // 2. 施加硬直 Tag
+        if (clashStunTag != null)
+        {
+            tagComponent.AddTag(clashStunTag);
+        }
+
+        // 3. 应用击退效果 (持续性)
         var cc = GetComponent<CharacterController>();
         if (cc != null)
         {
             float timer = 0f;
-            float knockbackDuration = 0.3f;
+            float knockbackDuration = 0.3f; // 击退持续时间
             while (timer < knockbackDuration)
             {
                 float speed = result.KnockbackForce * (1f - (timer / knockbackDuration));
@@ -439,24 +456,16 @@ public class PlayerAttackComponent : MonoBehaviour,IClashable
             }
         }
 
-        // 7. 等待硬直时间结束
-        //    (减去我们之前已经等待过的 0.1 秒)
-        float remainingStun = result.StunDuration - 0.1f;
-        if (remainingStun > 0)
-        {
-            yield return new WaitForSeconds(remainingStun);
-        }
+        // 4. 等待硬直时间结束
+        yield return new WaitForSeconds(result.StunDuration);
 
-        // 8. 硬直结束，调用 StopAndCleanup 来安全重置，并解锁
+        // 5. 硬直结束，清理状态
         StopAndCleanup();
-        
-        // 9. *** 核心修改：手动移除“拼刀硬直”Tag ***
         if (clashStunTag != null)
         {
             tagComponent.RemoveTag(clashStunTag);
         }
-        
-        _isClashed = false; // 解除锁定
+        _isClashed = false; // 解锁
     }
 
     #endregion

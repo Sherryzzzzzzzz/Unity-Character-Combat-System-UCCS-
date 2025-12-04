@@ -141,7 +141,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
 
     public void ChangePlayerState(PlayerState state)
     {
-        Debug.Log(state.ToString());
+        //Debug.Log(state.ToString());
         switch (state)
         {
             case PlayerState.ground:
