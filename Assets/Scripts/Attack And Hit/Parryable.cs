@@ -71,7 +71,7 @@ public class Parryable : MonoBehaviour
 
         // 2. 立即打断当前所有行为
         //    (例如，停止正在播放的攻击动画)
-        var attackComponent = GetComponent<PlayerAttackComponent>() ?? (Component)GetComponent<EnemySkillComponent>();
+        var attackComponent = GetComponent<PlayerSkillComponent>() ?? (Component)GetComponent<EnemySkillComponent>();
         attackComponent?.SendMessage("StopAndCleanup", SendMessageOptions.DontRequireReceiver);
         
         // (可选) 通过接口禁用更高级的行为，如行为树

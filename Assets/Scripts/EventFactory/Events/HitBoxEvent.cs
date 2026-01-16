@@ -20,6 +20,7 @@ public class HitBoxEvent : TimelineEventBase, ITimelineEventRuntime
     public bool isInvincible;
 
     public override TimelineEventType Type => TimelineEventType.HitBox;
+    private HurtBoxManager managerToUse;
 
     public override string GetSummary()
     {
@@ -31,7 +32,7 @@ public class HitBoxEvent : TimelineEventBase, ITimelineEventRuntime
     public void OnStart(GameObject owner)
     {
         // 如果事件上没有指定 targetManager，我们可以默认尝试使用技能的持有者 (owner)
-        HurtBoxManager managerToUse = targetManager;
+         managerToUse = targetManager;
         if (managerToUse == null)
         {
             managerToUse = owner.GetComponent<HurtBoxManager>();
@@ -41,6 +42,15 @@ public class HitBoxEvent : TimelineEventBase, ITimelineEventRuntime
         {
             Debug.LogError($"HitBoxEvent 在帧 [{StartFrame}] 无法找到 HurtBoxManager！请在事件上指定 Target Manager，或者确保技能持有者 ({owner.name}) 身上有此组件。", owner);
             return;
+        }
+
+        if (isInvincible)
+        {
+            managerToUse.isInvincible = true;
+        }
+        else
+        {
+            managerToUse.isInvincible = false;
         }
 
         // --- 逻辑回归：通过 Manager 来操作 ---
@@ -68,6 +78,15 @@ public class HitBoxEvent : TimelineEventBase, ITimelineEventRuntime
         newEvent.isInvincible = isInvincible;
         return newEvent;
     }
-
-    public void OnEnd(GameObject owner) { }
+    
+    public void OnEnd(GameObject owner)
+    {
+        managerToUse = targetManager;
+        if (managerToUse == null)
+        {
+            managerToUse = owner.GetComponent<HurtBoxManager>();
+        }
+        if (managerToUse != null)
+            managerToUse.isInvincible = false;
+    }
 }

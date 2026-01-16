@@ -1,16 +1,10 @@
-// 文件名: HurtBoxManager.cs
 using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Animancer;
-#if CINEMACHINE_ENABLED
 using Cinemachine;
-#endif
 
-// --- 外部依赖的定义 (请确保这些在你的项目中存在) ---
-
-// 身体部位枚举
 public enum GameBodyPart
 {
     Root, Torso, Head, LeftArm, LeftHand, RightArm, RightHand,
@@ -80,11 +74,12 @@ public class HurtBoxManager : MonoBehaviour
     public int hitLayerIndex = 2; // 使用第2层，第1层可能被攻击动画占用
     
     public bool isHitting;
+    public bool isInvincible = false;
+    
+    [Tooltip("所有自动生成的 HurtBox 游戏对象都将存放在此 Transform 下")]
+    public Transform hurtBoxContainer;
 
-#if CINEMACHINE_ENABLED
-    [Header("相机震动")]
-    public CinemachineImpulseSource impulseSource;
-#endif
+    private CinemachineImpulseSource _impulseSource;
 
     // --- 内部数据 ---
     private readonly Dictionary<GameBodyPart, GameObject> hurtBoxDict = new();
@@ -103,6 +98,7 @@ public class HurtBoxManager : MonoBehaviour
         animancer = GetComponent<AnimancerComponent>();
         _tagComponent = GetComponent<TagComponent>();
         healthSystem = GetComponent<HealthSystem>();
+        _impulseSource = GetComponent<CinemachineImpulseSource>();
 
         // 初始化受击层
         if (animancer.Layers.Count <= hitLayerIndex)
@@ -125,6 +121,9 @@ public class HurtBoxManager : MonoBehaviour
 
     public void ProcessHit(AttackEvent hit, GameObject attacker)
     {
+        if(isInvincible)
+            return;
+        
         // --- 优先级 1: 完美弹反 / 普通弹反 ---
         // 检查角色是否拥有任一弹反窗口 Tag
         if (_tagComponent.HasTag(perfectParryTag) || _tagComponent.HasTag(normalParryTag))
@@ -219,14 +218,13 @@ private AttackForceType ReduceForceType(AttackForceType originalType)
         string animName = Compose4DirAnimation(_currentHitStrength, dir4);
         PlayHitAnimation(animName);
 
+        Vector3 forceDirection = hit.GetForceDirection();
         // 4. 触发相机震动和回调
-#if CINEMACHINE_ENABLED
-        if (impulseSource && hitImpulseAmplitude > 0)
-            impulseSource.GenerateImpulse(hitImpulseAmplitude);
-#endif
-        OnHitCallback?.Invoke(hit, _currentHitStrength);
-        
-        if (this)
+        if (_impulseSource != null)
+        {
+            // 可以传递击退方向，让晃动更有方向感
+            _impulseSource.GenerateImpulseWithVelocity(forceDirection);
+        }
         
         // 5. 启动并等待击退协程完成
         yield return StartCoroutine(ApplyKnockbackForce(hit));
@@ -344,5 +342,20 @@ private AttackForceType ReduceForceType(AttackForceType originalType)
     {
     bodyPartMappings.Clear();
     hurtBoxDict.Clear();
+    }
+    
+    private void LateUpdate()
+    {
+        if (bodyPartMappings == null || bodyPartMappings.Count == 0) return;
+
+        foreach (var mapping in bodyPartMappings)
+        {
+            if (mapping.hurtBoxObject != null && mapping.boneTransform != null)
+            {
+                // 将 HurtBox 的世界位置和旋转，强制设置为对应骨骼的世界位置和旋转
+                mapping.hurtBoxObject.transform.position = mapping.boneTransform.position;
+                mapping.hurtBoxObject.transform.rotation = mapping.boneTransform.rotation;
+            }
+        }
     }
 }

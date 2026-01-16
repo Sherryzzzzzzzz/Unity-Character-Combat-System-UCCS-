@@ -1,8 +1,6 @@
 using UnityEngine;
 using System;
 
-// ... (您的 TimelineEventBase, ITimelineEventRuntime 等定义) ...
-
 public class ComboEvent : TimelineEventBase, ITimelineEventRuntime
 {
     [Tooltip("触发此连招所需的 Tag")]

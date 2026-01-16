@@ -1,7 +1,13 @@
 fileFormatVersion: 2
-guid: 17a346de65e4609498395e46a00385cc
-PrefabImporter:
-  externalObjects: {}
+guid: 412b92d4feeb9c548bfa98f62c4d1022
+NativeFormatImporter:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 18705
+  packageName: '"Unity-Chan!" Model'
+  packageVersion: 1.2.2
+  assetPath: Assets/ASP/Demo/Models/unity-chan!/Prefabs/unitychan.prefab
+  uploadId: 374231

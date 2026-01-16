@@ -19,6 +19,9 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
     private SkillTimelineAsset _currentSkill;
     public bool IsPlaying { get; private set; } = false;
     private int _currentFrame = 0;
+    
+    // 【新增】为调试器缓存当前技能资源
+    private SkillTimelineAsset _debuggingSkillAsset;
 
     // --- 事件管理 ---
     private readonly Dictionary<int, List<ITimelineEventRuntime>> _frameStartEvents = new Dictionary<int, List<ITimelineEventRuntime>>();
@@ -68,7 +71,6 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
             return;
         }
         
-        // 如果正在播放上一个技能，先执行它所有尚未触发的 OnEnd 事件来清理状态
         if (IsPlaying)
         {
             foreach (var evt in _frameEndEvents.Values.SelectMany(v => v))
@@ -80,8 +82,9 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
 
         // --- 重置状态 ---
         _currentSkill = skill;
+        _debuggingSkillAsset = skill; // 【新增】缓存技能资源给调试器使用
         IsPlaying = true;
-        _currentFrame = -1; // 设置为-1，确保动画第一帧（第0帧）的事件能够被触发
+        _currentFrame = -1;
         _frameStartEvents.Clear();
         _frameEndEvents.Clear();
         
@@ -100,12 +103,10 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
                 {
                     if (evt is ITimelineEventRuntime runtimeEvent)
                     {
-                        // 注册 OnStart 事件
                         if (!_frameStartEvents.ContainsKey(evt.StartFrame))
                             _frameStartEvents[evt.StartFrame] = new List<ITimelineEventRuntime>();
                         _frameStartEvents[evt.StartFrame].Add(runtimeEvent);
 
-                        // 注册 OnEnd 事件
                         if (!_frameEndEvents.ContainsKey(evt.EndFrame))
                             _frameEndEvents[evt.EndFrame] = new List<ITimelineEventRuntime>();
                         _frameEndEvents[evt.EndFrame].Add(runtimeEvent);
@@ -120,59 +121,61 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
             var state = _attackLayer.Play(skill.animationClip, 0.1f, FadeMode.FromStart);
             _attackLayer.SetWeight(1f);
             
-            // 为动画状态注册一个 OnEnd 回调
-            // 当动画播放完毕时，Animancer 会自动调用 StopAndCleanup
-            state.Events(this).OnEnd = StopAndCleanup;
+            // 【修改】为动画状态注册一个 OnEnd 回调
+            state.Events(this).OnEnd = () =>
+            {
+                // 在调用原始清理逻辑前，先广播停止消息
+                SkillDebugManager.ReportSkillStop(this.gameObject);
+                StopAndCleanup();
+            };
         }
         else
         {
-            // 如果没有动画片段，立即认为技能已结束
             StopAndCleanup();
         }
     }
     
     /// <summary>
     /// (由外部驱动) 手动更新当前帧的事件。
-    /// 这是为了将 Update 逻辑的控制权交给行为树。
     /// </summary>
     public void ManualUpdate()
     {
-        if (_isClashed)
-        {
-            return;
-        }
-        
+        if (_isClashed) return;
         if (!IsPlaying || _currentSkill == null || _attackLayer.CurrentState == null) return;
         
         var state = _attackLayer.CurrentState;
         if(state.Clip == null) return;
 
-        // 计算总帧数和当前帧
         float totalFrames = state.Clip.length * state.Clip.frameRate;
         int newFrame = Mathf.FloorToInt(state.NormalizedTime * totalFrames);
 
-        // 如果帧数没有变化，则不执行任何操作，避免重复触发
-        if (newFrame == _currentFrame) return;
-        
-        _currentFrame = newFrame;
+        // 【修改】如果帧数有变化，则广播并触发事件
+        if (newFrame > _currentFrame) 
+        {
+             _currentFrame = newFrame;
+            
+            // 【新增】广播调试信息
+            int maxFrame = totalFrames > 0 ? (int)totalFrames : 0;
+            SkillDebugManager.ReportSkillFrameUpdate(this.gameObject, _debuggingSkillAsset, _currentFrame, maxFrame);
 
-        // 检查并触发 OnStart 事件
-        if (_frameStartEvents.TryGetValue(_currentFrame, out var startEvents))
-        {
-            foreach (var evt in startEvents.ToArray()) // 使用 ToArray() 保护循环
+            // 检查并触发 OnStart 事件
+            if (_frameStartEvents.TryGetValue(_currentFrame, out var startEvents))
             {
-                try { evt.OnStart(gameObject); }
-                catch (Exception e) { Debug.LogError($"Error executing OnStart event: {e}", this); }
+                foreach (var evt in startEvents.ToArray())
+                {
+                    try { evt.OnStart(gameObject); }
+                    catch (Exception e) { Debug.LogError($"Error executing OnStart event: {e}", this); }
+                }
             }
-        }
-        
-        // 检查并触发 OnEnd 事件
-        if (_frameEndEvents.TryGetValue(_currentFrame, out var endEvents))
-        {
-            foreach (var evt in endEvents.ToArray())
+            
+            // 检查并触发 OnEnd 事件
+            if (_frameEndEvents.TryGetValue(_currentFrame, out var endEvents))
             {
-                try { evt.OnEnd(gameObject); }
-                catch (Exception e) { Debug.LogError($"Error executing OnEnd event: {e}", this); }
+                foreach (var evt in endEvents.ToArray())
+                {
+                    try { evt.OnEnd(gameObject); }
+                    catch (Exception e) { Debug.LogError($"Error executing OnEnd event: {e}", this); }
+                }
             }
         }
     }
@@ -182,12 +185,19 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
     /// </summary>
     public void StopAndCleanup()
     {
+        // 【新增】在清理开始时，再次广播停止消息，确保状态同步
+        if(IsPlaying)
+        {
+            SkillDebugManager.ReportSkillStop(this.gameObject);
+        }
+
         if (!IsPlaying) return;
         
         // 重置内部状态
         IsPlaying = false;
         _currentSkill = null;
         _currentFrame = 0;
+        _debuggingSkillAsset = null; // 【新增】清理调试器缓存
         _frameStartEvents.Clear();
         _frameEndEvents.Clear();
         
@@ -203,12 +213,18 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
         OnSkillEnd?.Invoke();
     }
     
-    #region IClashable Implementation
-
-    public GameObject GetGameObject()
+    // 【新增】在对象销毁时，广播停止消息
+    private void OnDestroy()
     {
-        return this.gameObject;
+        // 确保在编辑器模式下，如果对象被销毁，调试器能收到通知
+        #if UNITY_EDITOR
+        SkillDebugManager.ReportSkillStop(this.gameObject);
+        #endif
     }
+    
+    #region IClashable Implementation (保持不变)
+
+    public GameObject GetGameObject() => this.gameObject;
     
     public int GetClashLevel()
     {
@@ -223,23 +239,14 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
         }
         return 0;
     }
-
-    /// <summary>
-    /// 指令：立即冻结当前攻击动画。
-    /// 由 ClashManager 调用。
-    /// </summary>
+    
     public void FreezeAnimation()
     {
-        // 1. 开启状态锁，暂停 ManualUpdate 的事件处理
         _isClashed = true;
-        
-        // 2. 禁用所有拼刀检测器，防止在“卡肉”期间重复触发拼刀
         foreach (var detector in _clashDetectors)
         {
             detector.Deactivate();
         }
-
-        // 3. 冻结动画
         if (_attackLayer.CurrentState != null)
         {
             _attackLayer.CurrentState.Speed = 0;
@@ -247,61 +254,40 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
         }
     }
     
-    /// <summary>
-    /// 指令：恢复动画播放，并执行拼刀的后续效果。
-    /// 由 ClashManager 在“卡肉”时间结束后调用。
-    /// </summary>
     public void ResumeAndExecuteClash(ClashResult result)
     {
         StartCoroutine(ClashAftermathSequence(result));
     }
 
-    /// <summary>
-    /// 处理拼刀“后效”（击退、硬直）的协程。
-    /// </summary>
     private IEnumerator ClashAftermathSequence(ClashResult result)
     {
-        // 1. 恢复动画播放（它会从被冻结的那一帧继续）
         if (_attackLayer.CurrentState != null)
         {
             _attackLayer.CurrentState.Speed = 1;
         }
-
-        // 2. 施加“拼刀硬直” Tag
         if (clashStunTag != null && _tagComponent != null)
         {
             _tagComponent.AddTag(clashStunTag);
         }
-
-        // 3. 应用击退效果 (持续性)
         var cc = GetComponent<CharacterController>();
         if (cc != null)
         {
             float timer = 0f;
-            float knockbackDuration = 0.3f; // 固定的击退动画时间
+            float knockbackDuration = 0.3f;
             while (timer < knockbackDuration)
             {
-                // 可以使用曲线来让击退效果衰减
                 float speed = result.KnockbackForce * (1f - (timer / knockbackDuration));
                 cc.Move(result.KnockbackDirection * speed * Time.deltaTime);
                 timer += Time.deltaTime;
                 yield return null;
             }
         }
-
-        // 4. 等待硬直时间结束
         yield return new WaitForSeconds(result.StunDuration);
-
-        // 5. 硬直结束，安全地重置所有状态
         StopAndCleanup();
-        
-        // 6. 移除硬直 Tag
         if (clashStunTag != null && _tagComponent != null)
         {
             _tagComponent.RemoveTag(clashStunTag);
         }
-        
-        // 7. 解除锁定，允许 ManualUpdate 正常工作
         _isClashed = false;
     }
 

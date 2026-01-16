@@ -26,6 +26,8 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     public bool running{ get;private set; } = false;
     public bool lightAttack{ get;private set; }
     public bool defend{ get;private set; }
+    public bool dodge { get;private set; }
+    public bool aim { get;private set; }
     #endregion
 
     private TagComponent tagComponent;
@@ -34,10 +36,14 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     
     private void Awake()
     {
+        GetComponent<InputActionWatcher>()?.onShortPress.AddListener(()=>dodge = true);
+        GetComponent<InputActionWatcher>()?.onLongPressStart.AddListener(()=>running = true);
+        GetComponent<InputActionWatcher>()?.onLongPressEnd.AddListener(()=>running = false);
         tagComponent = playerModel.tagComponent;
         input = new PlayerInputAction();
         cameraTransform = Camera.main.transform;
         Cursor.lockState = CursorLockMode.Locked;
+        aim = false;
         
         foreach (var action in inputActions)
         {
@@ -116,9 +122,9 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         #region 获取玩家输入
         movement = input.Simple.Move.ReadValue<Vector2>();
         jump = input.Simple.Jump.IsPressed();
-        running = input.Simple.Run.IsPressed();
         lightAttack = input.Simple.LightAttack.WasPressedThisFrame();
         defend = input.Simple.Parry.IsPressed();
+        aim = input.Simple.Aim.WasReleasedThisFrame();
 
         #endregion
         
@@ -142,10 +148,8 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         #endregion
         
         #region 人物旋转
-
         float rad = Mathf.Atan2(localMovement.x, localMovement.z);
         playerModel.transform.Rotate(0,rad*rotationSpeed*Time.deltaTime,0);
-
         #endregion
         
         #region 控制相机
@@ -156,14 +160,13 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         localMovement = playerModel.transform.InverseTransformVector(worldMovement);
         #endregion
         
-        if (lightAttack)
-        {
-            if(!playerModel.isAttacking)
-                playerModel.ChangePlayerState(PlayerState.groundLightAttack);
-            tagComponent.AddTransientTag(playerModel.LightAttackInputTag);
-        }
-
         playerModel.isDefending = defend;
+    }
+    
+    private void LateUpdate()
+    {
+        // 重置一些一帧有效的输入
+        dodge = false;
     }
 
     private void FixedUpdate()

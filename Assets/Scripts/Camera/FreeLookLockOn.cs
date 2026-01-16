@@ -1,6 +1,5 @@
 using UnityEngine;
 using Cinemachine;
-
 public class FreeLookLockOn : MonoBehaviour
 {
     [Header("References")]

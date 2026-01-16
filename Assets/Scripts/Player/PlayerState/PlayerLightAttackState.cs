@@ -20,6 +20,14 @@ public class PlayerLightAttackState : PlayerStateBase
 
         playerModel.pac.OnSkillEnd += OnSkillEnd;
     }
+    
+    public override void Update()
+    {
+        if (playerController.lightAttack)
+        {
+            playerModel.tagComponent.AddTransientTag(playerModel.LightAttackInputTag);
+        }
+    }
 
     private void OnSkillEnd()
     {

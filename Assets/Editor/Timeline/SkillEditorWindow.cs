@@ -59,6 +59,7 @@ public class SkillEditorTimelineWindow : EditorWindow
     private VisualElement _eventInspector;
     private ScrollView _trackContentScrollView;
     private Label _frameLabel;
+    private AnimationClip _defaultPoseClip;
     
     private TimelineEventBase _selectedEvent;
     private VisualElement _selectedEventClip;
@@ -66,6 +67,10 @@ public class SkillEditorTimelineWindow : EditorWindow
 
     public int GetTotalFrames() => _totalFrames;
     public bool HasClip() => _clip != null;
+    
+    //运行时动态查看
+    private bool _isInDebugMode = false;
+    private SkillTimelineAsset _lastDebugAsset = null;
 
     public void CreateGUI()
     {
@@ -85,9 +90,28 @@ public class SkillEditorTimelineWindow : EditorWindow
         SceneView.duringSceneGui -= OnSceneGUI;
         SceneView.duringSceneGui += OnSceneGUI;
     }
+    
+    private void RestoreToDefaultPose()
+    {
+        // 1. 确保退出当前的动画模式，这会清除所有动画修改
+        if (AnimationMode.InAnimationMode())
+        {
+            AnimationMode.StopAnimationMode();
+        }
 
+        // 2. 如果有预览对象和默认姿态动画，则手动采样它
+        if (_previewObj != null && _defaultPoseClip != null)
+        {
+            // 重新进入一次动画模式来应用我们的采样
+            AnimationMode.StartAnimationMode();
+            AnimationMode.SampleAnimationClip(_previewObj, _defaultPoseClip, 0); // 采样第 0 秒 (第一帧)
+            AnimationMode.StopAnimationMode(); // 立即退出，将这个姿态“固化”在场景中
+        }
+    }
+    
     private void OnDestroy()
     {
+        RestoreToDefaultPose();
         EditorApplication.update -= OnEditorUpdate;
         SceneView.duringSceneGui -= OnSceneGUI;
         if (AnimationMode.InAnimationMode()) AnimationMode.StopAnimationMode();
@@ -118,6 +142,15 @@ public class SkillEditorTimelineWindow : EditorWindow
         var objField = new ObjectField("预览对象") { objectType = typeof(GameObject), allowSceneObjects = true, style = { width = 200 } };
         objField.RegisterValueChangedCallback(evt => _previewObj = evt.newValue as GameObject);
         _toolbar.Add(objField);
+        
+        var defaultPoseField = new ObjectField("默认姿态") 
+        {
+            objectType = typeof(AnimationClip), 
+            allowSceneObjects = false,
+            tooltip = "当停止预览时，角色恢复到的动画姿态（如 Idle）"
+        };
+        defaultPoseField.RegisterValueChangedCallback(evt => _defaultPoseClip = evt.newValue as AnimationClip);
+        _toolbar.Add(defaultPoseField);
 
         _toolbar.Add(new ToolbarSpacer());
 
@@ -366,7 +399,6 @@ public class SkillEditorTimelineWindow : EditorWindow
 
         // 2. 将图标和文本框放入左侧容器
         header.Add(new Image { 
-            image = GetIconForType(data.type), 
             scaleMode = ScaleMode.ScaleToFit, 
             style = { width = 16, height = 16 }
         });
@@ -697,21 +729,6 @@ public class SkillEditorTimelineWindow : EditorWindow
         return Mathf.FloorToInt(Mathf.Clamp01(localX / target.resolvedStyle.width) * _totalFrames);
     }
     
-    private Texture GetIconForType(TimelineEventType type)
-    {
-        switch(type)
-        {
-            case TimelineEventType.Attack: return EditorGUIUtility.IconContent("d_Animation.Record").image;
-            case TimelineEventType.HitBox: return EditorGUIUtility.IconContent("d_BoxCollider").image;
-            case TimelineEventType.Combo:  return EditorGUIUtility.IconContent("d_UnityEditor.AnimationWindow").image;
-            case TimelineEventType.Effect : return EditorGUIUtility.IconContent("d_ParticleSystem Icon").image;
-            case TimelineEventType.Sound: return EditorGUIUtility.IconContent("d_AudioSource Icon").image;
-            case TimelineEventType.Buff: return EditorGUIUtility.IconContent("d_FilterByType").image;
-            case TimelineEventType.Loop: return EditorGUIUtility.IconContent("AnimationClip Icon").image;
-            case TimelineEventType.Branch: return EditorGUIUtility.IconContent("d_Animation.NextKey").image;
-            default: return EditorGUIUtility.IconContent("d_DefaultAsset").image;
-        }
-    }
 
     private TimelineEventBase CreateDefaultEventForTrack(TimelineEventType type, int frame)
     {
@@ -900,5 +917,46 @@ public class SkillEditorTimelineWindow : EditorWindow
                 evt.StopPropagation();
             }
         }
+    }
+    
+    // 进入调试模式
+    public void EnterDebugMode(SkillTimelineAsset asset)
+    {
+        if (asset == null) return;
+    
+        _isInDebugMode = true;
+    
+        // 只有当资源变化时才重新加载，避免不必要的UI刷新
+        if (_lastDebugAsset != asset)
+        {
+            LoadAsset(asset);
+            _lastDebugAsset = asset;
+        }
+
+        // 禁用主内容区的交互
+        _splitView.SetEnabled(false);
+        _eventInspector.SetEnabled(false);
+    }
+
+// 设置调试帧
+    public void SetDebugFrame(int frame)
+    {
+        if (!_isInDebugMode) return;
+        JumpToFrame(frame);
+    }
+
+// 退出调试模式
+    public void ExitDebugMode()
+    {
+        if (!_isInDebugMode) return;
+
+        _isInDebugMode = false;
+        _lastDebugAsset = null;
+    
+        // 重新启用交互
+        _splitView.SetEnabled(true);
+        _eventInspector.SetEnabled(true);
+        
+        LoadAsset(null);
     }
 }

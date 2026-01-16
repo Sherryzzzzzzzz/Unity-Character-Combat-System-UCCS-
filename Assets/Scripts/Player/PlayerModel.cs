@@ -6,12 +6,12 @@ using Animancer;
 
 public enum PlayerAnimationState
 {
-    idle,move,jump,fall,parry
+    idle,move,jump,fall,parry,aim
 }
 
 public enum PlayerState
 {
-    ground,sky,groundLightAttack,skyLightAttack,parry
+    ground,sky,groundLightAttack,skyLightAttack,parry,aim
 }
 
 public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorController
@@ -27,11 +27,15 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
 
     public PlayerAnimationSet AnimationSet;
 
-    public PlayerAttackComponent pac;
+    public PlayerSkillComponent pac;
 
     // 技能动画资源
     public SkillTimelineAsset lightStart;//轻攻击起手式
     public SkillTimelineAsset lightSkyStart;//空中轻攻击起手式
+    public SkillTimelineAsset dodgeF;
+    public SkillTimelineAsset dodgeB;
+    public SkillTimelineAsset dodgeR;
+    public SkillTimelineAsset dodgeL;
     
     public SkillTimelineAsset currentSkill;
     public bool isAttacking = false;
@@ -59,6 +63,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public Transform nearestEnemy;   // 当前最近的敌人
     public bool isHitting = false;
     public bool isDefending = false;
+    public bool isAiming = false;
     
     //弹反测试
     public ClipTransition Parry_Start;
@@ -76,7 +81,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
         animationStateMachine = new StateMachine(this);
         playerStateMachine = new StateMachine(this);
         cc = GetComponent<CharacterController>();
-        pac = GetComponent<PlayerAttackComponent>();
+        pac = GetComponent<PlayerSkillComponent>();
         tagComponent = GetComponent<TagComponent>();
     }
 
@@ -159,6 +164,9 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
             case PlayerState.parry:
                 playerStateMachine.EnterState<PlayerParryState>();
                 break;
+            case PlayerState.aim:
+                playerStateMachine.EnterState<PlayerGroundAimState>();
+                break;
         }
         _PlayerState = state;
     }
@@ -166,8 +174,11 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public void PlaySkill(SkillTimelineAsset skill = null)
     {
         if(isHitting) return;
-        switch (_PlayerState) 
+        if(skill != null)
+            pac.PlaySkill(skill);
+        /*switch (_PlayerState) 
         {
+            
             case PlayerState.ground:
                 isComboChain = true;
                 pac.PlaySkill(lightStart);  // ✅ 第一次播放起手式
@@ -176,7 +187,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
                 isComboChain = true;
                 pac.PlaySkill(lightSkyStart);
                 break;
-        }
+        }*/
 
         currentSkill = skill ?? lightStart;
     }

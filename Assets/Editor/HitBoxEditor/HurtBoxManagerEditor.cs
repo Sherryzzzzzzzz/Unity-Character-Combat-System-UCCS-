@@ -51,6 +51,11 @@ public class HurtBoxManagerEditor : Editor
             EditorGUILayout.EndVertical();
             return;
         }
+        
+        if (manager.hurtBoxContainer == null)
+        {
+            EditorGUILayout.HelpBox("Please assign a 'Hurt Box Container' Transform. This will be the parent for all generated HurtBoxes.", MessageType.Error);
+        }
 
         EditorGUILayout.LabelField("Generation Parameters", EditorStyles.miniBoldLabel);
         limbRadius = EditorGUILayout.FloatField("Limb Radius", limbRadius);
@@ -77,6 +82,8 @@ public class HurtBoxManagerEditor : Editor
         Undo.RecordObject(manager, "Generate HurtBoxes");
         manager.ClearMappings();
 
+        // --- 核心逻辑修改：不再将 HurtBox 作为骨骼的子对象 ---
+        
         // --- 1. 生成基于骨骼对的胶囊体 (四肢, 躯干) ---
         foreach (var pair in limbBodyPartMap)
         {
@@ -86,32 +93,38 @@ public class HurtBoxManagerEditor : Editor
 
             if (startBone != null && endBone != null)
             {
-                // a. 创建 HurtBox GameObject 并将其作为起始骨骼的子对象
+                // a. 创建 HurtBox GameObject，并将其作为 hurtBoxContainer 的子对象
                 GameObject hurtBoxGO = new GameObject($"HurtBox_{part}");
-                hurtBoxGO.transform.SetParent(startBone);
-                hurtBoxGO.transform.localPosition = Vector3.zero;
-                hurtBoxGO.transform.localRotation = Quaternion.identity;
+                // 【修改】设置父对象
+                hurtBoxGO.transform.SetParent(manager.hurtBoxContainer); 
+                
+                // 位置和旋转将在 LateUpdate 中同步，这里不需要设置
 
                 var collider = hurtBoxGO.AddComponent<CapsuleCollider>();
                 collider.isTrigger = true;
+                
+                // b. 计算从 startBone 到 endBone 的世界向量
+                Vector3 endPositionWorld = endBone.position;
+                Vector3 startPositionWorld = startBone.position;
+                Vector3 boneVector = endPositionWorld - startPositionWorld;
+                
+                // c. 找到这个世界向量在 startBone 局部坐标系下的表示
+                Vector3 boneVectorLocal = startBone.InverseTransformDirection(boneVector);
 
-                // b. 计算从 startBone 到 endBone 的局部向量
-                Vector3 endPositionLocal = startBone.InverseTransformPoint(endBone.position);
-
-                // c. 找到这个局部向量中最长的轴作为胶囊体的方向
-                float x = Mathf.Abs(endPositionLocal.x);
-                float y = Mathf.Abs(endPositionLocal.y);
-                float z = Mathf.Abs(endPositionLocal.z);
-                int direction = 0; // 0=X, 1=Y, 2=Z
+                // d. 找到局部向量中最长的轴作为胶囊体的方向 (这部分逻辑可以保持)
+                float x = Mathf.Abs(boneVectorLocal.x);
+                float y = Mathf.Abs(boneVectorLocal.y);
+                float z = Mathf.Abs(boneVectorLocal.z);
+                int direction = 0;
                 if (y > x && y > z) direction = 1;
                 else if (z > x && z > y) direction = 2;
                 
                 collider.direction = direction;
 
-                // d. 设置胶囊体的尺寸和位置
-                float boneLength = endPositionLocal.magnitude;
+                // e. 设置胶囊体的尺寸和中心点 (基于局部向量)
+                float boneLength = boneVectorLocal.magnitude;
                 collider.height = boneLength * lengthPadding;
-                collider.center = endPositionLocal / 2; // 中心点就是局部向量的一半
+                collider.center = boneVectorLocal / 2; // 中心点在两个骨骼的中间
                 collider.radius = (part == GameBodyPart.Torso) ? torsoRadius : limbRadius;
                 
                 manager.bodyPartMappings.Add(new BodyPartMapping
@@ -128,15 +141,14 @@ public class HurtBoxManagerEditor : Editor
             if (bone != null)
             {
                 GameObject hurtBoxGO = new GameObject($"HurtBox_{part}");
-                hurtBoxGO.transform.SetParent(bone);
-                hurtBoxGO.transform.localPosition = Vector3.zero;
-                hurtBoxGO.transform.localRotation = Quaternion.identity;
+                // 【修改】设置父对象
+                hurtBoxGO.transform.SetParent(manager.hurtBoxContainer);
 
                 var collider = hurtBoxGO.AddComponent<SphereCollider>();
                 collider.isTrigger = true;
                 
                 collider.radius = headRadius;
-                // 将球体沿骨骼的局部Y轴(通常是向上)移动半个半径，使其更居中
+                // 中心点偏移仍然在局部坐标系中定义
                 collider.center = Vector3.up * headRadius * 0.5f;
 
                 manager.bodyPartMappings.Add(new BodyPartMapping
@@ -145,6 +157,6 @@ public class HurtBoxManagerEditor : Editor
         }
 
         EditorUtility.SetDirty(manager);
-        Debug.Log("HurtBoxes generated with final placement algorithm!");
+        Debug.Log("HurtBoxes generated with decoupled structure!");
     }
 }

@@ -64,3 +64,10 @@ TextureImporter:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 18705
+  packageName: '"Unity-Chan!" Model'
+  packageVersion: 1.2.2
+  assetPath: Assets/ASP/Demo/Models/unity-chan!/Texture/skin_01.tga
+  uploadId: 374231
