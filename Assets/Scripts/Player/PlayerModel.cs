@@ -6,12 +6,12 @@ using Animancer;
 
 public enum PlayerAnimationState
 {
-    idle,move,jump,fall,parry,aim
+    idle,move,jump,fall,aim
 }
 
 public enum PlayerState
 {
-    ground,sky,groundLightAttack,skyLightAttack,parry,aim
+    ground,sky,attack,aim
 }
 
 public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorController
@@ -28,10 +28,13 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public PlayerAnimationSet AnimationSet;
 
     public PlayerSkillComponent pac;
+    public TargetingSystem ts;
 
     // 技能动画资源
     public SkillTimelineAsset lightStart;//轻攻击起手式
     public SkillTimelineAsset lightSkyStart;//空中轻攻击起手式
+    public SkillTimelineAsset heavyStart;//重攻击起手式
+    public SkillTimelineAsset defendStart;//防御起手式
     public SkillTimelineAsset dodgeF;
     public SkillTimelineAsset dodgeB;
     public SkillTimelineAsset dodgeR;
@@ -57,6 +60,8 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public float runSpeed = 10f;
     public TagComponent tagComponent;
     public GameplayTagSO LightAttackInputTag;
+    public GameplayTagSO HeavyAttackInputTag;
+    public GameplayTagSO DefendInputTag;
     
     public float detectRadius = 0.5f; // 检测半径
     public LayerMask enemyLayer;     // 敌人层
@@ -64,15 +69,6 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public bool isHitting = false;
     public bool isDefending = false;
     public bool isAiming = false;
-    
-    //弹反测试
-    public ClipTransition Parry_Start;
-    public ClipTransition Guard_Loop;
-    public ClipTransition Parry_End;
-        
-    public GameplayTagSO PerfectParryTag; // 在 Inspector 中拖入 "State.Parrying.Perfect"
-    public GameplayTagSO NormalParryTag;  // 在 Inspector 中拖入 "State.Parrying.Normal"
-    public GameplayTagSO GuardStanceTag;  // 在 Inspector 中拖入 "State.Guarding"
 
     private void Awake()
     {
@@ -83,6 +79,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
         cc = GetComponent<CharacterController>();
         pac = GetComponent<PlayerSkillComponent>();
         tagComponent = GetComponent<TagComponent>();
+        ts = GetComponent<TargetingSystem>();
     }
 
     void Start()
@@ -98,27 +95,6 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
         DetectNearestEnemy();
         isAttacking = pac.isPlaying;
         isHitting = GetComponent<HurtBoxManager>().isHitting;
-
-        if (isAttacking)
-        {
-            // 如果有最近的敌人，就朝向它
-            if (nearestEnemy != null)
-            {
-                Vector3 lookDirection = nearestEnemy.position - transform.position;
-                lookDirection.y = 0; // 保持水平
-                if (lookDirection.sqrMagnitude > 0.01f)
-                {
-                    Quaternion targetRotation = Quaternion.LookRotation(lookDirection);
-                    transform.rotation =
-                        Quaternion.Slerp(transform.rotation, targetRotation, 15f * Time.deltaTime); // 用一个较快的速度转向
-                }
-            }
-        }
-
-        if (pac.isPlaying)
-        {
-            currentSkill = pac.CurrentSkill;
-        }
     }
 
     public void ChangeAnimationState(PlayerAnimationState animationState)
@@ -137,38 +113,30 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
             case PlayerAnimationState.fall:
                 animationStateMachine.EnterState<FallState>();
                 break;
-            case PlayerAnimationState.parry:
-                animationStateMachine.EnterState<ParryState>();
-                break;
         }
         _PlayerAnimationState = animationState;
     }
 
-    public void ChangePlayerState(PlayerState state)
+    public void ChangePlayerState(PlayerState newState, object parameter = null)
     {
-        //Debug.Log(state.ToString());
-        switch (state)
+        Debug.Log($"Changing state from {_PlayerState} to {newState}");
+
+        switch (newState)
         {
             case PlayerState.ground:
-                playerStateMachine.EnterState<PlayerGroundState>();
+                playerStateMachine.EnterState<PlayerGroundState>(parameter);
                 break;
             case PlayerState.sky:
-                playerStateMachine.EnterState<PlayerSkyState>();
+                playerStateMachine.EnterState<PlayerSkyState>(parameter);
                 break;
-            case PlayerState.groundLightAttack:
-                playerStateMachine.EnterState<PlayerLightAttackState>();
-                break;
-            case PlayerState.skyLightAttack:
-                playerStateMachine.EnterState<PlayerSkyLightAttackState>();
-                break;
-            case PlayerState.parry:
-                playerStateMachine.EnterState<PlayerParryState>();
+            case PlayerState.attack:
+                playerStateMachine.EnterState<PlayerAttackState>(parameter);
                 break;
             case PlayerState.aim:
-                playerStateMachine.EnterState<PlayerGroundAimState>();
+                playerStateMachine.EnterState<PlayerGroundAimState>(parameter);
                 break;
         }
-        _PlayerState = state;
+        _PlayerState = newState;
     }
 
     public void PlaySkill(SkillTimelineAsset skill = null)
@@ -176,20 +144,6 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
         if(isHitting) return;
         if(skill != null)
             pac.PlaySkill(skill);
-        /*switch (_PlayerState) 
-        {
-            
-            case PlayerState.ground:
-                isComboChain = true;
-                pac.PlaySkill(lightStart);  // ✅ 第一次播放起手式
-                break;
-            case PlayerState.sky:
-                isComboChain = true;
-                pac.PlaySkill(lightSkyStart);
-                break;
-        }*/
-
-        currentSkill = skill ?? lightStart;
     }
     
     void OnAnimatorMove()
@@ -214,12 +168,6 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
 
             // 应用重力位移
             cc.Move(gravityVector * Time.deltaTime);
-        }
-        
-        if ((isAttacking||isHitting) && animator != null)
-        {
-            Vector3 deltaPosition = animator.deltaPosition;
-            cc.Move(deltaPosition);
         }
     }
     

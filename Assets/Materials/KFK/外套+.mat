@@ -13,7 +13,7 @@ Material:
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
   - _SPECULAR_LIGHTING_ON
-  - _STYLE_CELSHADING
+  - _STYLE_STYLIZEPBR
   m_InvalidKeywords:
   - _EMISSIVE_SIMPLE
   - _IS_ANGELRING_OFF
@@ -618,7 +618,7 @@ Material:
     - _ZWriteMode: 1
     - _isUnityToonshader: 1
     - _simpleUI: 0
-    - _style: 1
+    - _style: 0
     - _utsTechnique: 0
     - _utsVersionX: 0
     - _utsVersionY: 11
@@ -679,6 +679,7 @@ Material:
     - _ViewShift: {r: 0, g: 0, b: 0, a: 1}
     - emissive: {r: 0, g: 0, b: 0, a: 1}
   m_BuildTextureStacks: []
+  m_AllowLocking: 1
 --- !u!114 &8753463522744798178
 MonoBehaviour:
   m_ObjectHideFlags: 11

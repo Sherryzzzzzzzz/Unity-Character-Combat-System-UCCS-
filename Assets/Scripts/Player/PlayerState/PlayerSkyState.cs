@@ -7,13 +7,24 @@ public class PlayerSkyState : PlayerStateBase
 {
     public override void Update()
     {
-        if (playerController.isGround)
+        float verticalVelocity = playerModel.gravityVector.y;
+        if (verticalVelocity < 0 && playerController.isGround&&!playerModel.ts.HasTarget)
         {
             playerModel.ChangePlayerState(PlayerState.ground);
+            return;
         }
+        
+        if (verticalVelocity < 0 && playerController.isGround&&playerModel.ts.HasTarget)
+        {
+            playerModel.ChangePlayerState(PlayerState.aim);
+            return;
+        }
+        
         if (playerController.lightAttack)
         {
-            playerModel.ChangePlayerState(PlayerState.skyLightAttack);
+            Debug.Log("In Sky State: Light Attack Triggered");
+            playerModel.ChangePlayerState(PlayerState.attack,AttackType.skyLight);
+            return;
         }
     }
 }

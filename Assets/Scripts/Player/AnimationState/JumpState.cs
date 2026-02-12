@@ -24,7 +24,7 @@ public class JumpState : PlayerStateBase
 
     public override void Update()
     {
-        if (playerModel.gravityVector.y <= 0)
+        if (playerModel.gravityVector.y <= 0.1)
         {
             playerModel.ChangeAnimationState(PlayerAnimationState.fall);
         }

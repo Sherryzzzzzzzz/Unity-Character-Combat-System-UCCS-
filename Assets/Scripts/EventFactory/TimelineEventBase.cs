@@ -13,7 +13,7 @@ public enum TimelineEventType
     Sound,
     Buff,
     Loop,
-    Branch
+    Cancel
 }
 
 [Serializable]

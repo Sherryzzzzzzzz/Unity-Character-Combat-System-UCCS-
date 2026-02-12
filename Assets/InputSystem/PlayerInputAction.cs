@@ -113,7 +113,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""name"": ""Jump"",
                     ""type"": ""Button"",
                     ""id"": ""927726ce-627e-47a1-aa0e-3ed687155b28"",
-                    ""expectedControlType"": ""Button"",
+                    ""expectedControlType"": """",
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
@@ -140,7 +140,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""name"": ""LightAttack"",
                     ""type"": ""Button"",
                     ""id"": ""fc52eb5c-e826-4eb5-8296-3685ef509079"",
-                    ""expectedControlType"": ""Button"",
+                    ""expectedControlType"": """",
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
@@ -149,7 +149,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""name"": ""Parry"",
                     ""type"": ""Button"",
                     ""id"": ""3faa89b4-b714-42df-82f2-eaae4ddd79eb"",
-                    ""expectedControlType"": ""Button"",
+                    ""expectedControlType"": """",
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
@@ -171,6 +171,15 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": false
+                },
+                {
+                    ""name"": ""GamepadXY"",
+                    ""type"": ""Value"",
+                    ""id"": ""4af5b30c-e5fc-4f68-940e-bc5629169be0"",
+                    ""expectedControlType"": ""Vector2"",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": true
                 }
             ],
             ""bindings"": [
@@ -319,6 +328,17 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                 },
                 {
                     ""name"": """",
+                    ""id"": ""e8ffbfde-53aa-42f0-8ff8-69a9000fe351"",
+                    ""path"": ""<Gamepad>/buttonSouth"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Jump"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
                     ""id"": ""b6760588-6031-40d8-b170-ee2e7f34a8ad"",
                     ""path"": ""<Keyboard>/leftCtrl"",
                     ""interactions"": """",
@@ -353,7 +373,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                 {
                     ""name"": """",
                     ""id"": ""b99cc584-29f0-4eae-975f-8edca7e6027d"",
-                    ""path"": ""<XInputController>/rightShoulder"",
+                    ""path"": ""<Gamepad>/buttonWest"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": """",
@@ -385,12 +405,45 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                 },
                 {
                     ""name"": """",
+                    ""id"": ""1779c90b-f12c-4188-9888-153f42d49c1a"",
+                    ""path"": ""<Gamepad>/buttonEast"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Dodge"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
                     ""id"": ""4de9652d-c158-4453-8105-da8c8b61e31e"",
                     ""path"": ""<Mouse>/middleButton"",
                     ""interactions"": """",
                     ""processors"": """",
                     ""groups"": """",
                     ""action"": ""Aim"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""8a35c130-cf39-4ad8-a96c-522d07437c8a"",
+                    ""path"": ""<Gamepad>/rightStickPress"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""Aim"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""e4b8448d-5f5c-4123-94a8-8d6e66abb16b"",
+                    ""path"": ""<Gamepad>/rightStick"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""GamepadXY"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
                 }
@@ -427,6 +480,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
         m_Simple_Parry = m_Simple.FindAction("Parry", throwIfNotFound: true);
         m_Simple_Dodge = m_Simple.FindAction("Dodge", throwIfNotFound: true);
         m_Simple_Aim = m_Simple.FindAction("Aim", throwIfNotFound: true);
+        m_Simple_GamepadXY = m_Simple.FindAction("GamepadXY", throwIfNotFound: true);
     }
 
     ~@PlayerInputAction()
@@ -516,6 +570,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
     private readonly InputAction m_Simple_Parry;
     private readonly InputAction m_Simple_Dodge;
     private readonly InputAction m_Simple_Aim;
+    private readonly InputAction m_Simple_GamepadXY;
     /// <summary>
     /// Provides access to input actions defined in input action map "Simple".
     /// </summary>
@@ -563,6 +618,10 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
         /// Provides access to the underlying input action "Simple/Aim".
         /// </summary>
         public InputAction @Aim => m_Wrapper.m_Simple_Aim;
+        /// <summary>
+        /// Provides access to the underlying input action "Simple/GamepadXY".
+        /// </summary>
+        public InputAction @GamepadXY => m_Wrapper.m_Simple_GamepadXY;
         /// <summary>
         /// Provides access to the underlying input action map instance.
         /// </summary>
@@ -616,6 +675,9 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
             @Aim.started += instance.OnAim;
             @Aim.performed += instance.OnAim;
             @Aim.canceled += instance.OnAim;
+            @GamepadXY.started += instance.OnGamepadXY;
+            @GamepadXY.performed += instance.OnGamepadXY;
+            @GamepadXY.canceled += instance.OnGamepadXY;
         }
 
         /// <summary>
@@ -654,6 +716,9 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
             @Aim.started -= instance.OnAim;
             @Aim.performed -= instance.OnAim;
             @Aim.canceled -= instance.OnAim;
+            @GamepadXY.started -= instance.OnGamepadXY;
+            @GamepadXY.performed -= instance.OnGamepadXY;
+            @GamepadXY.canceled -= instance.OnGamepadXY;
         }
 
         /// <summary>
@@ -770,5 +835,12 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
         /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
         /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
         void OnAim(InputAction.CallbackContext context);
+        /// <summary>
+        /// Method invoked when associated input action "GamepadXY" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+        /// </summary>
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+        void OnGamepadXY(InputAction.CallbackContext context);
     }
 }

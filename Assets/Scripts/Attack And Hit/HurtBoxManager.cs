@@ -45,10 +45,10 @@ public class HurtBoxManager : MonoBehaviour
     public List<BodyPartMapping> bodyPartMappings = new();
 
     [Header("受击时长 (硬直时间)")]
-    public float hitDurationLight = 0.4f;
-    public float hitDurationMedium = 0.7f;
-    public float hitDurationHeavy = 1.0f;
-    public float hitDurationBlow = 1.2f;
+    public float hitDurationLight = 0.7f;
+    public float hitDurationMedium = 1.0f;
+    public float hitDurationHeavy = 1.5f;
+    public float hitDurationBlow = 3.0f;
 
     [Header("击退 / 击飞")]
     [Tooltip("击退效果的持续时间")]
@@ -200,7 +200,7 @@ private AttackForceType ReduceForceType(AttackForceType originalType)
         isHitting = true;
         float duration = GetHitDuration(_currentHitStrength);
 
-        // 2. 帧冻结 (如果需要)
+        // 2. 帧冻结
         if (hitFreezeFrame > 0f)
         {
             OnMomentaryFreeze?.Invoke(hitFreezeFrame);
@@ -230,7 +230,7 @@ private AttackForceType ReduceForceType(AttackForceType originalType)
         yield return StartCoroutine(ApplyKnockbackForce(hit));
         
         // 6. 等待剩余的硬直时间
-        float remainingDuration = duration - knockbackDuration;
+        float remainingDuration = duration;
         if (remainingDuration > 0)
         {
             yield return new WaitForSeconds(remainingDuration);
@@ -240,7 +240,6 @@ private AttackForceType ReduceForceType(AttackForceType originalType)
         _hitLayer.StartFade(0f, 0.25f); // 平滑地隐藏受击层
         isHitting = false;
         _hitFlowCoroutine = null; 
-        _currentHitStrength = HitStrength.Light; // 重置强度
     }
 
     // ---------------- 推力协程 ----------------

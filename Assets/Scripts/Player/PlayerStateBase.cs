@@ -12,6 +12,11 @@ public class PlayerStateBase: StateBase
         MonoManager.Instance.AddUpdateAction(Update);
     }
 
+    public override void Enter(object parameter = null)
+    {
+        Enter();
+    }
+
     public override void Exit()
     {
         MonoManager.Instance.RemoveUpdateAction(Update);

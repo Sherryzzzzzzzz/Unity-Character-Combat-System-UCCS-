@@ -5,6 +5,8 @@ using UnityEngine;
 public abstract class StateBase
 {
     public abstract void Enter();
+
+    public abstract void Enter(object parameter = null);
     
     public abstract void Exit();
     

@@ -1,33 +1,57 @@
+// 文件名: LoopEventFactory.cs
 using UnityEngine;
 using UnityEditor;
 using UnityEngine.UIElements;
+using UnityEditor.UIElements;
 
 public class LoopEventFactory : ITimelineEventFactory
 {
-    // 告诉编辑器这个工厂对应哪种事件类型
     public TimelineEventType Type => TimelineEventType.Loop;
-
-    // 当点击 "Add Loop Event" 时，创建一个新的 LoopEvent 实例
-    public TimelineEventBase Create() => new LoopEvent();
     public TimelineEventBase CreateEvent() => new LoopEvent();
-    
-    // 创建在 Inspector 中显示的 UI
+
     public VisualElement CreateInspector(TimelineEventBase evt)
     {
-        // 因为 LoopEvent 没有任何自定义字段，我们只需要创建一个空的容器
-        // 并在里面放一个简单的帮助提示
         var root = new VisualElement();
+        var loopEvt = evt as LoopEvent;
+        if (loopEvt == null) return root;
+
+        var proxy = ScriptableObject.CreateInstance<LoopEventEditorProxy>();
+        proxy.TargetEvent = loopEvt;
+        var serializedObject = new SerializedObject(proxy);
         
-        var helpBox = new HelpBox(
-            "This event marks a loop section. The animation will repeat between the Start and End frames of this event. " +
-            "Use a Branch Event to exit the loop based on a condition.", 
-            HelpBoxMessageType.Info);
+        var imguiContainer = new IMGUIContainer(() =>
+        {
+            serializedObject.Update();
             
-        root.Add(helpBox);
+            var targetEventProp = serializedObject.FindProperty("TargetEvent");
+            var conditionsProp = targetEventProp.FindPropertyRelative("breakConditions");
+            
+            EditorGUILayout.LabelField("Break Conditions", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox("When all conditions below are met, the loop will break and the animation will continue.", MessageType.Info);
+            
+            // 使用 PropertyField 自动绘制列表，它会自动查找并使用 BranchConditionDrawer
+            EditorGUILayout.PropertyField(conditionsProp, true);
+
+            if (GUI.changed)
+            {
+                serializedObject.ApplyModifiedProperties();
+            }
+        });
         
+        root.Add(imguiContainer);
+        
+        root.RegisterCallback<DetachFromPanelEvent>(e => { if (proxy != null) Object.DestroyImmediate(proxy); });
+
         return root;
     }
-
-    // LoopEvent 没有预览效果
-    public void Execute(TimelineEventBase evt, GameObject previewTarget) { }
+    
+    // 代理 ScriptableObject
+    private class LoopEventEditorProxy : ScriptableObject
+    {
+        public LoopEvent TargetEvent;
+    }
+    
+    // 其他接口方法
+    public TimelineEventBase Create() => CreateEvent();
+    public void Execute(TimelineEventBase evt, GameObject previewTarget) {}
 }

@@ -1,6 +1,11 @@
 using UnityEngine;
 
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
+
 [RequireComponent(typeof(Animator))]
+// 我们不再需要 AnimancerComponent 的引用了
 public class FootIKController : MonoBehaviour
 {
     [Header("IK Global Settings")]
@@ -12,159 +17,123 @@ public class FootIKController : MonoBehaviour
     [Tooltip("脚部离地面的高度偏移")]
     [SerializeField] private float footOffset = 0.05f;
     [Tooltip("脚部射线检测的最大垂直距离")]
-    [SerializeField] private float footRaycastDistance = 0.5f;
+    [SerializeField] private float footRaycastDistance = 1.5f;
     [Tooltip("用于射线检测的地面层")]
     [SerializeField] private LayerMask groundLayer;
-
-    [Header("Stairs & Body IK Settings")]
-    [Tooltip("身体重心（臀部）向上调整的最大高度")]
-    [SerializeField] private float maxPelvisUpOffset = 0.3f;
-    [Tooltip("身体重心调整的平滑速度")]
-    [SerializeField] private float pelvisLerpSpeed = 10f;
-    [Tooltip("前方台阶检测射线的起点，在角色根部前方")]
-    [SerializeField] private Vector3 stepDetectorOffset = new Vector3(0, 0.1f, 0.4f);
-    [Tooltip("前方台阶检测射线的长度")]
-    [SerializeField] private float stepDetectorRayLength = 0.6f;
     
+    [Header("Debugging")]
+    [Tooltip("在Scene视图中绘制所有调试信息")]
+    public bool enableDebugDrawing = true;
+
     private Animator animator;
     
+    // 我们将使用 Animator 参数的哈希值，这是非常稳定和高效的 API
     private static readonly int LeftFootIKWeightHash = Animator.StringToHash("LIK");
     private static readonly int RightFootIKWeightHash = Animator.StringToHash("RIK");
-    
-    // 内部状态
-    private Vector3 _pelvisOffset = Vector3.zero; // 臀部的当前偏移量
-    private Vector3 _leftFootPosition;
-    private Vector3 _rightFootPosition;
-    private Quaternion _leftFootRotation;
-    private Quaternion _rightFootRotation;
-    private float _leftFootWeight;
-    private float _rightFootWeight;
-    
-    
+
+    // --- 用于 Gizmos 绘制的数据 ---
+    private struct FootIKDebugData
+    {
+        public bool IsGrounded;
+        public float Weight;
+        public Vector3 AnimPosition;
+        public Vector3 IKPosition;
+        public Vector3 RayStart;
+        public Vector3 RayDirection;
+    }
+    private FootIKDebugData _leftFootDebugData;
+    private FootIKDebugData _rightFootDebugData;
+
     void Awake()
     {
         animator = GetComponent<Animator>();
+        if (animator == null)
+        {
+            Debug.LogError("[FootIKController] Animator component not found!", this);
+        }
     }
 
-    // 使用 FixedUpdate 来进行物理检测，结果更稳定
-    void FixedUpdate()
-    {
-        if (animator == null || !animator.enabled) return;
-
-        // --- 1. 前向台阶检测 ---
-        DetectUpcomingStep();
-    }
-    
     void OnAnimatorIK(int layerIndex)
     {
         if (animator == null || !animator.enabled) return;
-
-        // --- 2. 身体重心（臀部）调整 ---
-        AdjustPelvisHeight();
-
-        // --- 3. 计算双脚的IK权重 ---
-        _leftFootWeight = GetFootIKWeight(LeftFootIKWeightHash);
-        _rightFootWeight = GetFootIKWeight(RightFootIKWeightHash);
-
-        // --- 4. 分别处理双脚的IK ---
-        ProcessFootIK(AvatarIKGoal.LeftFoot, ref _leftFootPosition, ref _leftFootRotation, _leftFootWeight);
-        ProcessFootIK(AvatarIKGoal.RightFoot, ref _rightFootPosition, ref _rightFootRotation, _rightFootWeight);
-
-        // --- 5. 将计算结果应用到Animator ---
-        ApplyIK(AvatarIKGoal.LeftFoot, _leftFootPosition, _leftFootRotation, _leftFootWeight);
-        ApplyIK(AvatarIKGoal.RightFoot, _rightFootPosition, _rightFootRotation, _rightFootWeight);
+        
+        // 1. 从 Animator Controller 的参数中获取权重
+        float leftFootWeight = animator.GetFloat(LeftFootIKWeightHash) * globalIKWeight;
+        float rightFootWeight = animator.GetFloat(RightFootIKWeightHash) * globalIKWeight;
+        
+        // 2. 分别处理双脚的IK
+        ProcessFootIK(AvatarIKGoal.LeftFoot, leftFootWeight, ref _leftFootDebugData);
+        ProcessFootIK(AvatarIKGoal.RightFoot, rightFootWeight, ref _rightFootDebugData);
     }
     
-    /// <summary>
-    /// (在 FixedUpdate 中调用) 检测前方的台阶并计算身体需要抬升的高度。
-    /// </summary>
-    private void DetectUpcomingStep()
+    void ProcessFootIK(AvatarIKGoal foot, float weight, ref FootIKDebugData debugData)
     {
-        // 从角色前下方发射射线
-        Vector3 rayStart = transform.TransformPoint(stepDetectorOffset);
-        
-        if (Physics.Raycast(rayStart, Vector3.down, out RaycastHit hit, stepDetectorRayLength, groundLayer))
-        {
-            // 计算检测到的地面高度与角色根部高度的差值
-            float heightDifference = hit.point.y - transform.position.y;
-            
-            // 我们只关心需要向上抬升的情况
-            float targetPelvisOffset = Mathf.Max(0, heightDifference);
-            
-            // 限制最大抬升高度
-            targetPelvisOffset = Mathf.Min(targetPelvisOffset, maxPelvisUpOffset);
+        debugData.Weight = weight;
+        debugData.AnimPosition = animator.GetIKPosition(foot);
 
-            // 平滑地更新臀部偏移量
-            _pelvisOffset = Vector3.Lerp(_pelvisOffset, new Vector3(0, targetPelvisOffset, 0), Time.fixedDeltaTime * pelvisLerpSpeed);
+        if (weight < 0.05f)
+        {
+            animator.SetIKPositionWeight(foot, 0);
+            animator.SetIKRotationWeight(foot, 0);
+            debugData.IsGrounded = false;
+            return;
+        }
+        
+        Vector3 animPosition = debugData.AnimPosition;
+        Vector3 rayStart = animPosition + Vector3.up * 0.5f;
+        Ray ray = new Ray(rayStart, Vector3.down);
+        debugData.RayStart = rayStart;
+        debugData.RayDirection = ray.direction;
+
+        bool didHitGround = Physics.Raycast(ray, out RaycastHit hit, footRaycastDistance, groundLayer);
+        debugData.IsGrounded = didHitGround;
+
+        if (didHitGround)
+        {
+            animator.SetIKPositionWeight(foot, weight);
+            animator.SetIKRotationWeight(foot, weight);
+            Vector3 targetPosition = hit.point + Vector3.up * footOffset;
+            Vector3 projectedDir = Vector3.ProjectOnPlane(transform.forward, hit.normal);
+            Quaternion targetRotation = Quaternion.LookRotation(projectedDir, hit.normal);
+            animator.SetIKPosition(foot, targetPosition);
+            animator.SetIKRotation(foot, targetRotation);
+            debugData.IKPosition = targetPosition;
         }
         else
         {
-            // 如果前方没有检测到地面（比如走下楼梯或平地），则平滑地恢复臀部位置
-            _pelvisOffset = Vector3.Lerp(_pelvisOffset, Vector3.zero, Time.fixedDeltaTime * pelvisLerpSpeed);
+            animator.SetIKPositionWeight(foot, 0);
+            animator.SetIKRotationWeight(foot, 0);
         }
     }
     
-    /// <summary>
-    /// (在 OnAnimatorIK 中调用) 将计算出的臀部偏移应用到身体上。
-    /// </summary>
-    private void AdjustPelvisHeight()
+    private void OnDrawGizmosSelected()
     {
-        if (_pelvisOffset.y > 0.01f)
-        {
-            // animator.bodyPosition 是一个强大的属性，它可以移动整个身体的根
-            // 我们将动画原始的身体位置与我们的偏移量相加
-            Vector3 newBodyPosition = animator.bodyPosition + _pelvisOffset;
-            animator.bodyPosition = newBodyPosition;
-        }
+        if (!enableDebugDrawing || !Application.isPlaying || animator == null) return;
+        DrawFootGizmos(AvatarIKGoal.LeftFoot, _leftFootDebugData);
+        DrawFootGizmos(AvatarIKGoal.RightFoot, _rightFootDebugData);
     }
 
-    private float GetFootIKWeight(int parameterHash)
+    private void DrawFootGizmos(AvatarIKGoal foot, FootIKDebugData debugData)
     {
-        float weightFromAnimator = animator.GetFloat(parameterHash);
-        return weightFromAnimator * globalIKWeight;
-        
-    }
-    
-    /// <summary>
-    /// (在 OnAnimatorIK 中调用) 计算单只脚的IK目标位置和旋转。
-    /// </summary>
-    private void ProcessFootIK(AvatarIKGoal foot, ref Vector3 position, ref Quaternion rotation, float weight)
-    {
-        position = animator.GetIKPosition(foot);
-        rotation = animator.GetIKRotation(foot);
-        
-        if (weight < 0.05f) return;
-
-        // 【上楼梯优化】射线起点更高，方向稍微向前，更容易“捕捉”到台阶边缘
-        Vector3 rayStart = position + Vector3.up * 0.5f + transform.forward * 0.1f;
-        
-        if (Physics.Raycast(rayStart, Vector3.down, out RaycastHit hit, footRaycastDistance + 0.5f, groundLayer))
+        #if UNITY_EDITOR
+        Color rayColor = debugData.IsGrounded ? Color.green : Color.red;
+        if (debugData.Weight > 0.05f)
         {
-            position = hit.point + new Vector3(0, footOffset, 0);
-            
-            Vector3 projectedLookDir = Vector3.ProjectOnPlane(transform.forward, hit.normal);
-            rotation = Quaternion.LookRotation(projectedLookDir, hit.normal);
+            Debug.DrawRay(debugData.RayStart, debugData.RayDirection * footRaycastDistance, rayColor);
         }
-        else
+        Handles.color = new Color(0.5f, 0.5f, 0.5f, 0.5f);
+        Handles.SphereHandleCap(0, debugData.AnimPosition, Quaternion.identity, 0.06f, EventType.Repaint);
+        if (debugData.IsGrounded && debugData.Weight > 0.05f)
         {
-             // 如果找不到地面，则不应用IK
-             // 通过将 weight 设为0 来实现
-             if (foot == AvatarIKGoal.LeftFoot) _leftFootWeight = 0;
-             else _rightFootWeight = 0;
+            Handles.color = Color.green;
+            Handles.SphereHandleCap(0, debugData.IKPosition, Quaternion.identity, 0.1f, EventType.Repaint);
+            Handles.color = Color.yellow;
+            Handles.DrawLine(debugData.AnimPosition, debugData.IKPosition);
         }
-    }
-
-    /// <summary>
-    /// (在 OnAnimatorIK 中调用) 将最终计算出的IK数据应用到Animator。
-    /// </summary>
-    private void ApplyIK(AvatarIKGoal foot, Vector3 position, Quaternion rotation, float weight)
-    {
-        animator.SetIKPositionWeight(foot, weight);
-        animator.SetIKRotationWeight(foot, weight);
-        if (weight > 0.05f)
-        {
-            animator.SetIKPosition(foot, position);
-            animator.SetIKRotation(foot, rotation);
-        }
+        string groundedStatus = debugData.IsGrounded ? "Grounded" : "In Air";
+        string label = $"{foot}\nParam Weight: {debugData.Weight:F2}\nRaycast: {groundedStatus}";
+        Handles.color = (debugData.Weight > 0.05f && debugData.IsGrounded) ? Color.green : Color.white;
+        Handles.Label(debugData.AnimPosition + Vector3.up * 0.3f, label);
+        #endif
     }
 }

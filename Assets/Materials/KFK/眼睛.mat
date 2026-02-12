@@ -13,7 +13,6 @@ Material:
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
   - _EMISSIVE_SIMPLE
-  - _IS_ANGELRING_OFF
   - _IS_CLIPPING_OFF
   - _IS_OUTLINE_CLIPPING_NO
   - _OUTLINE_NML
@@ -21,10 +20,11 @@ Material:
   - _EYESTYLE_FLATLIGHTING
   - _HIGHLIGHTALPHACLIP
   - _HIGHLIGHTDARKEN
+  - _IS_ANGELRING_OFF
   - _RECEIVESHADOWS
   - _SPECULAR_LIGHTING_ON
-  - _STYLE_CELSHADING
   - _STYLE_EYE
+  - _STYLE_FACE
   - _USEPUPILMASK
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0
@@ -298,7 +298,8 @@ Material:
         m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
-    m_Ints: []
+    m_Ints:
+    - _ToonMaterialVersion: 0
     m_Floats:
     - _1st2nd_Shades_Feather: 0.0001
     - _1st_ShadeColor_Feather: 0.0001
@@ -642,7 +643,7 @@ Material:
     - _eyeStyleTitle: 0
     - _isUnityToonshader: 1
     - _simpleUI: 0
-    - _style: 1
+    - _style: 2
     - _utsTechnique: 0
     - _utsVersionX: 0
     - _utsVersionY: 11
@@ -706,6 +707,7 @@ Material:
     - _ViewShift: {r: 0, g: 0, b: 0, a: 1}
     - emissive: {r: 0, g: 0, b: 0, a: 1}
   m_BuildTextureStacks: []
+  m_AllowLocking: 1
 --- !u!114 &1541778334792809410
 MonoBehaviour:
   m_ObjectHideFlags: 11

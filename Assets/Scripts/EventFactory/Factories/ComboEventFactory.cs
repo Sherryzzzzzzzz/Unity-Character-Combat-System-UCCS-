@@ -71,9 +71,7 @@ public class ComboEventFactory : ITimelineEventFactory
         return root;
     }
     
-    // Execute 方法在我们的运行时逻辑中不被使用，可以留空
     public void Execute(TimelineEventBase evt, GameObject previewTarget) 
     {
-        // 可以在这里加一个调试按钮，但在当前系统下不是必需的
     }
 }

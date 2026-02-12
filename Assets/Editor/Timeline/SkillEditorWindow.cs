@@ -18,8 +18,8 @@ public static class TimelineEventFactoryBootstrap
         EventFactoryRegistry.Register(new EffectEventFactory()); 
         EventFactoryRegistry.Register(new SoundEventFactory());
         EventFactoryRegistry.Register(new BuffEventFactory());
-        EventFactoryRegistry.Register(new BranchEventFactory());
         EventFactoryRegistry.Register(new LoopEventFactory());
+        EventFactoryRegistry.Register(new CancelEventFactory());
     }
 }
 #endregion
@@ -71,6 +71,8 @@ public class SkillEditorTimelineWindow : EditorWindow
     //运行时动态查看
     private bool _isInDebugMode = false;
     private SkillTimelineAsset _lastDebugAsset = null;
+    
+    private AudioSource _previewAudioSource;
 
     public void CreateGUI()
     {
@@ -109,8 +111,26 @@ public class SkillEditorTimelineWindow : EditorWindow
         }
     }
     
+    private void OnEnable()
+    {
+        // 【新增】初始化预览 AudioSource
+        if (_previewAudioSource == null)
+        {
+            // 创建一个临时的、隐藏的游戏对象来挂载 AudioSource
+            GameObject previewer = new GameObject("Skill Editor Audio Previewer");
+            previewer.hideFlags = HideFlags.HideAndDontSave; // 确保它不会被保存到场景中
+            _previewAudioSource = previewer.AddComponent<AudioSource>();
+        }
+    }
+    
     private void OnDestroy()
     {
+        if (_previewAudioSource != null)
+        {
+            DestroyImmediate(_previewAudioSource.gameObject);
+            _previewAudioSource = null;
+        }
+        
         RestoreToDefaultPose();
         EditorApplication.update -= OnEditorUpdate;
         SceneView.duringSceneGui -= OnSceneGUI;
@@ -754,7 +774,7 @@ public class SkillEditorTimelineWindow : EditorWindow
             case TimelineEventType.Sound: return new Color(0.8f, 0.5f, 1f);
             case TimelineEventType.Buff: return new Color(0.5f, 0.5f, 0.5f);
             case TimelineEventType.Loop: return new Color(0.3f, 0.8f, 0.8f);
-            case TimelineEventType.Branch: return new Color(0.85f, 0.85f, 0.8f);
+            case TimelineEventType.Cancel: return new Color(0.85f, 0.85f, 0.8f);
             default: return Color.gray;
         }
     }
@@ -789,7 +809,7 @@ public class SkillEditorTimelineWindow : EditorWindow
         UpdatePlayheadPosition();
         if (!AnimationMode.InAnimationMode()) AnimationMode.StartAnimationMode();
         SampleAnimationAtTime(_playTimeSec);
-        OnFrameChanged(_currentFrame);
+        TriggerEventsAtFrame(_currentFrame);
     }
     
     private void OnEditorUpdate()
@@ -826,12 +846,56 @@ public class SkillEditorTimelineWindow : EditorWindow
         SceneView.RepaintAll();
     }
     
-    private void OnFrameChanged(int frameIndex) 
+    private void TriggerEventsAtFrame(int frame)
     {
+        if (_previewAudioSource == null) return;
+
+        // 遍历所有轨道和事件
+        foreach (var timeline in _timelines)
+        {
+            foreach (var evt in timeline.events)
+            {
+                // --- 处理音效事件 ---
+                if (evt is SoundEvent soundEvent)
+                {
+                    // 如果当前帧是音效的起始帧
+                    if (frame == soundEvent.StartFrame && soundEvent.soundClip != null)
+                    {
+                        if (soundEvent.loop)
+                        {
+                            // 如果是循环音效，则使用标准的 Play
+                            _previewAudioSource.clip = soundEvent.soundClip;
+                            _previewAudioSource.volume = soundEvent.volume;
+                            _previewAudioSource.loop = true;
+                            _previewAudioSource.Play();
+                        }
+                        else
+                        {
+                            // 如果是单次音效，使用 PlayOneShot，它不会打断当前正在播放的其他音效
+                            _previewAudioSource.PlayOneShot(soundEvent.soundClip, soundEvent.volume);
+                        }
+                    }
+                    // 如果当前帧是循环音效的结束帧
+                    else if (frame == soundEvent.EndFrame && soundEvent.loop)
+                    {
+                        // 检查当前播放的片段是否就是这个循环音效，如果是，则停止它
+                        if (_previewAudioSource.isPlaying && _previewAudioSource.clip == soundEvent.soundClip)
+                        {
+                            _previewAudioSource.Stop();
+                        }
+                    }
+                }
+                
+                // (未来可以在这里添加其他需要预览的事件，比如特效)
+            }
+        }
+        
+        // 【新增】处理HitBox，我们把 OnFrameChanged 的逻辑也移到这里，让事件处理更集中
         _activeHitboxes.Clear();
         foreach (var track in _timelines) {
             foreach (var evt in track.events) {
-                if (frameIndex >= evt.StartFrame && frameIndex < evt.EndFrame) { 
+                // 注意这里的逻辑是“在...期间”，而不是“在...开始”
+                if (frame >= evt.StartFrame && frame < evt.EndFrame) { 
                     if (evt is AttackEvent atk && !string.IsNullOrEmpty(atk.hitBoxName))
                         _activeHitboxes.Add(atk.hitBoxName);
                 }
@@ -839,6 +903,8 @@ public class SkillEditorTimelineWindow : EditorWindow
         }
         SceneView.RepaintAll();
     }
+    
+    
     #endregion
     
     #region 场景视图与辅助方法

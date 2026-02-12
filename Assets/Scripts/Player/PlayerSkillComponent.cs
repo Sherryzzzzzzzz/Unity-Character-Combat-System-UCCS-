@@ -1,4 +1,4 @@
-// 文件名: PlayerAttackComponent.cs
+// 文件名: PlayerSkillComponent.cs (已修复“后摇取消”的最终完整版)
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -7,9 +7,11 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using Animancer;
 
-
-public class PlayerSkillComponent : MonoBehaviour,IClashable
+public class PlayerSkillComponent : MonoBehaviour, IClashable
 {
+    // --- 字段声明 ---
+    #region Fields
+
     private AnimancerComponent _Animancer;
 
     [Header("Skill Settings")]
@@ -22,16 +24,14 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
     public int CurrentFrame => currentFrame;
     private int maxFrame = 0;
     
-    // 【新增】为调试器缓存当前技能资源
     private SkillTimelineAsset _debuggingSkillAsset;
 
     private readonly Dictionary<int, List<ITimelineEventRuntime>> frameStartEvents = new();
     private readonly Dictionary<int, List<ITimelineEventRuntime>> frameEndEvents = new();
+    private readonly List<CancelEvent> _activeCancelEvents = new List<CancelEvent>();
     
     private readonly List<LoopEvent> activeLoopEvents = new List<LoopEvent>();
-    private readonly List<BranchEvent> activeBranchEvents = new List<BranchEvent>();
 
-    // 缓存输入系统
     private InputActionReference cachedInputAction = null;
     private float cachedInputTimer = 0f;
     private const float CachedInputExpire = 0.25f;
@@ -40,9 +40,8 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
 
     public event Action OnSkillEnd;
 
-    // === 新增：专用攻击层 ===
     private AnimancerLayer _AttackLayer;
-    private int attackLayerIndex = 1; // 攻击层放在 Layer 1，底层 Layer 0 是移动/idle
+    private int attackLayerIndex = 1;
     
     private TagComponent tagComponent;
     
@@ -53,14 +52,18 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
     [Tooltip("攻击结束，过渡回 Idle/Move 时的淡出时间")]
     public float attackFadeOutDuration = 0.25f;
     
-    // --- 新增：拼刀相关 ---
     [Header("Clash Configuration")]
     [Tooltip("代表“拼刀硬直”的状态 Tag")]
-    public GameplayTagSO clashStunTag; // *** 在 Inspector 中拖入 "State.Clash.Stun" ***
+    public GameplayTagSO clashStunTag;
     
-    private bool _isClashed = false; // 拼刀状态锁
+    private bool _isClashed = false;
     
     public List<ClashDetector> _clashDetectors { get; private set; }
+
+    #endregion
+
+    // --- Unity 生命周期方法 ---
+    #region Unity Lifecycle
 
     private void Awake()
     {
@@ -71,10 +74,19 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
             _Animancer.Layers.Count = attackLayerIndex + 1;
 
         _AttackLayer = _Animancer.Layers[attackLayerIndex];
-        
         _AttackLayer.SetWeight(0f);
         _clashDetectors = new List<ClashDetector>(GetComponentsInChildren<ClashDetector>(true));
     }
+
+    private void OnDestroy()
+    {
+        SkillDebugManager.ReportSkillStop(this.gameObject);
+    }
+
+    #endregion
+
+    // --- 核心更新逻辑 ---
+    #region Update Logic
 
     private void Update()
     {
@@ -98,148 +110,133 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
             return;
         }
         
-        foreach (var branch in activeBranchEvents.ToArray())
+        // --- 循环逻辑 (保持不变) ---
+        if (activeLoopEvents.Count > 0)
         {
-            if (branch.ConditionsMet(gameObject))
+            var activeLoop = activeLoopEvents[0];
+            if (activeLoop.BreakConditionsMet(gameObject))
             {
-                switch (branch.action)
-                {
-                    case BranchActionType.JumpToFrame:
-                        float targetTime = branch.targetFrame / state.Clip.frameRate;
-                        state.Time = targetTime;
-                        currentFrame = Mathf.FloorToInt(state.Time * state.Clip.frameRate);
-                        Debug.Log($"Branching to frame {branch.targetFrame}");
-                        break;
-                    case BranchActionType.EndSkill:
-                        HandleAnimationEnd(); // 使用统一的结束函数
-                        return;
-                }
-                break; 
+                activeLoopEvents.Remove(activeLoop);
+                Debug.Log("Loop break conditions met. Exiting loop.");
+            }
+            else if (currentFrame >= activeLoop.EndFrame)
+            {
+                float loopStartTime = (float)activeLoop.StartFrame / state.Clip.frameRate;
+                state.Time = loopStartTime;
+                return;
             }
         }
-        if (!isPlaying) return;
-
+        
+        // --- 【核心修复】常规帧更新和事件触发 ---
         int previousFrame = currentFrame;
         currentFrame = Mathf.FloorToInt(state.Time * state.Clip.frameRate);
-
-        // 如果帧数没有前进，则不触发事件
-        if (currentFrame <= previousFrame && state.Time > 0) return;
         
-        // --- 【新增】广播调试信息 ---
-        if (currentFrame != previousFrame)
+        // 只在帧前进时才触发事件
+        if (currentFrame > previousFrame)
         {
+            #if UNITY_EDITOR
             int maxFrame = state.Clip.length > 0 ? Mathf.RoundToInt(state.Clip.length * state.Clip.frameRate) : 0;
             SkillDebugManager.ReportSkillFrameUpdate(this.gameObject, _debuggingSkillAsset, currentFrame, maxFrame);
+            #endif
+
+            // 【关键修改】调用范围性触发方法
+            TriggerEventsForFrameRange(previousFrame + 1, currentFrame);
+        }
+        else if (currentFrame < previousFrame)
+        {
+            // 处理时间回溯（例如循环）时，也可能需要清理事件，暂时简化
         }
 
-        if (frameStartEvents.TryGetValue(currentFrame, out var starts))
+        // 动画结束检查
+        if (isPlaying && state.IsPlaying && state.NormalizedTime >= 1.0f)
         {
-            // ... (原有的 Combo 等逻辑保持不变)
-            var startsSnapshot = starts.ToArray();
-            foreach (var evt in startsSnapshot)
+            HandleAnimationEnd();
+        }
+    }
+    
+    private void TriggerEventsForFrameRange(int fromFrame, int toFrame)
+    {
+        for (int frame = fromFrame; frame <= toFrame; frame++)
+        {
+            // 触发 Start 事件
+            if (frameStartEvents.TryGetValue(frame, out var starts))
             {
-                evt.OnStart(gameObject);
-                if (evt is LoopEvent loop) activeLoopEvents.Add(loop);
-                if (evt is BranchEvent branch) activeBranchEvents.Add(branch);
-            }
-            foreach (var evt in startsSnapshot)
-            {
-                if (evt is ComboEvent combo)
+                foreach (var evt in starts.ToArray())
                 {
-                    bool tagMatched = false;
-                    if (combo.comboMode == ComboEvent.ComboMode.Normal_Cacheable)
+                    evt.OnStart(gameObject);
+                    if (evt is LoopEvent loop) activeLoopEvents.Add(loop);
+                    if (evt is CancelEvent cancel) _activeCancelEvents.Add(cancel);
+                    if (evt is ComboEvent combo)
                     {
-                        tagMatched = tagComponent.ConsumeTag(combo.RequiredTag);
-                    }
-                    else
-                    {
-                        tagMatched = tagComponent.HasTag(combo.RequiredTag);
-                    }
-
-                    if (tagMatched)
-                    {
-                        if (combo.nextSkill != null)
-                        {
-                            if (combo.comboMode == ComboEvent.ComboMode.Strict_Immediate)
-                            {
-                                tagComponent.ConsumeTag(combo.RequiredTag);
-                            }
-                            var model = GetComponent<PlayerModel>();
-                            if (model != null && isPlaying)
-                            {
-                                model.isComboChain = true;
-                                model.isAttacking = true;
-                            }
-                            PlaySkill(combo.nextSkill);
-                            return;
-                        }
+                        HandleComboEvent(combo);
                     }
                 }
             }
-        }
-        if (frameEndEvents.TryGetValue(currentFrame, out var ends))
-        {
-            var endsSnapshot = ends.ToArray();
-            foreach (var evt in endsSnapshot)
+
+            // 触发 End 事件
+            if (frameEndEvents.TryGetValue(frame, out var ends))
             {
-                try { evt.OnEnd(gameObject); }
-                catch (Exception ex) { Debug.LogError($"[PlayerAttackComponent] End event exception: {ex}"); }
-                
-                if (evt is LoopEvent loop) activeLoopEvents.Remove(loop);
-                if (evt is BranchEvent branch) activeBranchEvents.Remove(branch);
+                foreach (var evt in ends.ToArray())
+                {
+                    evt.OnEnd(gameObject);
+                    if (evt is LoopEvent loop) activeLoopEvents.Remove(loop);
+                    if (evt is CancelEvent cancel) _activeCancelEvents.Remove(cancel);
+                }
             }
         }
+    }
+    
+    private void HandleComboEvent(ComboEvent combo)
+    {
+        bool tagMatched = (combo.comboMode == ComboEvent.ComboMode.Normal_Cacheable)
+            ? tagComponent.ConsumeTag(combo.RequiredTag)
+            : tagComponent.HasTag(combo.RequiredTag);
 
-        foreach (var loop in activeLoopEvents)
+        if (tagMatched && combo.nextSkill != null)
         {
-            if (currentFrame >= loop.EndFrame)
+            if (combo.comboMode == ComboEvent.ComboMode.Strict_Immediate)
+                tagComponent.ConsumeTag(combo.RequiredTag);
+
+            var model = GetComponent<PlayerModel>();
+            if (model != null) 
             {
-                float loopStartTime = loop.StartFrame / state.Clip.frameRate;
-                state.Time = loopStartTime;
-                currentFrame = loop.StartFrame; 
-                Debug.Log($"Looping back to frame {loop.StartFrame}");
-                break; 
+                model.isComboChain = true;
             }
-        }
-
-        if (state.NormalizedTime >= 1.0f)
-        {
-            HandleAnimationEnd(); // 使用统一的结束函数
+            PlaySkill(combo.nextSkill);
         }
     }
 
-    // ========== 播放技能 ==========
+    #endregion
+
+    // --- 技能播放与管理 (方法签名保持不变, 内部清理列表) ---
+    #region Skill Playback Management
+
     public void PlaySkill(SkillTimelineAsset skill)
     {
         if (skill == null) return;
-        if (isPlaying && currentSkill == skill) return;
+        if (isSwitching) return;
+
+        if (isPlaying)
+        {
+            StopAndCleanup(true, false);
+        }
 
         isSwitching = true;
-        bool isCombo = isPlaying;
-
-        var model = GetComponent<PlayerModel>();
-        if (model != null)
-        {
-            model.isComboChain = isCombo;
-            model.isAttacking = true;
-        }
         
-        foreach (var detector in _clashDetectors)
-        {
-            detector.Activate();
-        }
-
+        var model = GetComponent<PlayerModel>();
+        
         currentSkill = skill;
-        _debuggingSkillAsset = skill; // 【新增】缓存技能资源
+        _debuggingSkillAsset = skill;
         isPlaying = true;
-        currentFrame = -1; // 设置为-1以确保第0帧事件触发
+        currentFrame = -1;
+        
         frameStartEvents.Clear();
         frameEndEvents.Clear();
         activeLoopEvents.Clear();
-        activeBranchEvents.Clear();
+        _activeCancelEvents.Clear();
+
         if (skill.tracks != null)
         {
-            // ... (注册事件逻辑保持不变)
             foreach (var track in skill.tracks)
             {
                 if (track?.events == null) continue;
@@ -262,14 +259,13 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
         if (_AttackLayer != null && skill.animationClip != null)
         {
             _AttackAnimation = skill.animationClip;
-            float fadeDuration = isCombo ? comboFadeInDuration : attackFadeInDuration;
-            var state = _AttackLayer.Play(_AttackAnimation, fadeDuration, FadeMode.FromStart);
+            float fadeDuration = (model != null && model.isComboChain) ? comboFadeInDuration : attackFadeInDuration;
+            var animState = _AttackLayer.Play(_AttackAnimation, fadeDuration, FadeMode.FromStart);
             _AttackLayer.SetWeight(1f);
-
-            // 【新增】为动画状态注册 OnEnd 回调
-            state.Events(this).OnEnd = HandleAnimationEnd;
             
-            maxFrame = Mathf.RoundToInt(state.Clip.length * state.Clip.frameRate);
+            animState.Events(this).OnEnd = skill.animationClip.isLooping ? (Action)null : HandleAnimationEnd;
+            
+            maxFrame = Mathf.RoundToInt(animState.Clip.length * animState.Clip.frameRate);
         }
         else
         {
@@ -280,85 +276,75 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
         isSwitching = false;
     }
     
-    // 【新增】创建一个统一的动画结束处理函数
     private void HandleAnimationEnd()
     {
         if (!isPlaying) return;
-        
-        SkillDebugManager.ReportSkillStop(this.gameObject);
-        StopAndCleanup();
-    }
-
-    // ========== 停止并清理 ==========
-    public void StopAndCleanup(bool clearCache = true)
-    {
-        // 【新增】在外部调用时也广播停止
-        if (isPlaying)
-        {
-            SkillDebugManager.ReportSkillStop(this.gameObject);
-        }
-
-        if (!isPlaying) return;
-
-        var endEventsSnapshot = frameEndEvents.Values.SelectMany(v => v).ToList();
-        foreach (var evt in endEventsSnapshot)
-        {
-            try { evt.OnEnd(gameObject); }
-            catch (Exception ex) { Debug.LogError($"[PlayerAttackComponent] OnEnd exception: {ex}"); }
-        }
-
-        currentSkill = null;
-        _debuggingSkillAsset = null; // 【新增】清理调试缓存
-        isPlaying = false;
-        currentFrame = 0;
-        maxFrame = 0;
-        activeLoopEvents.Clear();
-        activeBranchEvents.Clear();
-        
-        foreach (var detector in _clashDetectors)
-        {
-            detector.Deactivate();
-        }
-
-        if (_AttackLayer != null)
-            _AttackLayer.StartFade(0f, attackFadeOutDuration); // 使用配置的淡出时间
-
-        if (clearCache)
-        {
-            cachedInputAction = null;
-            cachedInputTimer = 0f;
-        }
-
-        var model = GetComponent<PlayerModel>();
-        if (model != null)
-        {
-            if (clearCache)
-            {
-                model.isComboChain = false;
-            }
-        
-            if (PlayerController.Instance.isGround)
-            {
-                model.ChangePlayerState(PlayerState.ground);
-            }
-            else
-            {
-                model.ChangePlayerState(PlayerState.sky);
-            }
-        }
-
-        OnSkillEnd?.Invoke();
+        StopAndCleanup(true, true);
     }
     
-    // 【新增】在对象销毁时，广播停止消息
-    private void OnDestroy()
+    public void StopAndCleanup(bool clearCache = true, bool triggerDefaultStateChange = true)
     {
+        if (!isPlaying) return;
+
+        isPlaying = false;
+        OnSkillEnd?.Invoke();
+        
         #if UNITY_EDITOR
         SkillDebugManager.ReportSkillStop(this.gameObject);
         #endif
+        
+        currentSkill = null;
+        _debuggingSkillAsset = null;
+        currentFrame = 0;
+        maxFrame = 0;
+        
+        activeLoopEvents.Clear();
+        _activeCancelEvents.Clear();
+        
+        foreach (var detector in _clashDetectors) detector.Deactivate();
+
+        if (_AttackLayer != null) _AttackLayer.StartFade(0f, attackFadeOutDuration);
+
+        if (clearCache) { cachedInputAction = null; cachedInputTimer = 0f; }
+
+        if (triggerDefaultStateChange)
+        {
+            var model = GetComponent<PlayerModel>();
+            if (model != null && !model.isAttacking) 
+            {
+                model.isComboChain = false;
+        
+                var playerController = FindObjectOfType<PlayerController>();
+                if (playerController != null && playerController.isGround)
+                {
+                    model.ChangePlayerState(PlayerState.ground);
+                }
+                else
+                {
+                    model.ChangePlayerState(PlayerState.sky);
+                }
+            }
+        }
     }
 
-    // ========== 输入缓存 (保持不变) ==========
+    #endregion
+    
+    #region Interfaces and Helpers
+    
+    public bool CanBeCanceledBy(CancelActionType actionType)
+    {
+        if (!isPlaying) return true;
+        foreach (var cancelEvent in _activeCancelEvents)
+        {
+            if ((cancelEvent.CancelableBy & actionType) != 0)
+            {
+                return true;
+            }
+                
+        }
+        return false;
+    }
+
     public void CacheInputAction(InputActionReference input)
     {
         if (input == null || input.action == null) return;
@@ -377,8 +363,6 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
         }
         return false;
     }
-
-    #region IClashable Implementation (保持不变)
 
     public GameObject GetGameObject() => this.gameObject;
     
@@ -401,7 +385,6 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
         if (_AttackLayer.CurrentState != null)
         {
             _AttackLayer.CurrentState.Speed = 0;
-            Debug.Log($"'{gameObject.name}' Animation Frozen.");
         }
     }
 
@@ -441,10 +424,10 @@ public class PlayerSkillComponent : MonoBehaviour,IClashable
         }
         _isClashed = false;
     }
-
-    #endregion
     
     public int CurrentSkillMaxFrame() => maxFrame;
     public bool HasCachedInput() => cachedInputAction != null;
     public string GetCachedInputName() => cachedInputAction?.action?.name ?? "None";
+    
+    #endregion
 }

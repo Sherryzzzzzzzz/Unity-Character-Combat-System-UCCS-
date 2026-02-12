@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 public class PlayerController : SingletonPatternMonoBase<PlayerController>
 {
@@ -25,6 +26,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     public bool jump{ get;private set; }
     public bool running{ get;private set; } = false;
     public bool lightAttack{ get;private set; }
+    public bool heavyAttack{ get;private set; }
     public bool defend{ get;private set; }
     public bool dodge { get;private set; }
     public bool aim { get;private set; }
@@ -34,11 +36,27 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     [Header("Input Actions")]
     public List<CustomInputAction> inputActions;
     
+    private InputActionWatcher _inputWatcher;
+    public InputActionReference dodgeRunActionRef;
+    public InputActionReference attackActionRef;
+    
     private void Awake()
     {
-        GetComponent<InputActionWatcher>()?.onShortPress.AddListener(()=>dodge = true);
-        GetComponent<InputActionWatcher>()?.onLongPressStart.AddListener(()=>running = true);
-        GetComponent<InputActionWatcher>()?.onLongPressEnd.AddListener(()=>running = false);
+        _inputWatcher = GetComponent<InputActionWatcher>();
+        var dodgeRunWatcher = _inputWatcher.GetWatchedAction(dodgeRunActionRef);
+        if (dodgeRunWatcher != null)
+        {
+            // 为查找到的 WatchedAction 添加监听器
+            dodgeRunWatcher.onShortPress.AddListener(() => dodge = true);
+            dodgeRunWatcher.onLongPressStart.AddListener(() => running = true);
+            dodgeRunWatcher.onLongPressEnd.AddListener(() => running = false);
+        }
+        var attackWatcher = _inputWatcher.GetWatchedAction(attackActionRef);
+        if (attackWatcher != null)
+        {
+            attackWatcher.onShortPress.AddListener(() => lightAttack = true);
+            attackWatcher.onLongPressStart.AddListener(() => heavyAttack = true);
+        }
         tagComponent = playerModel.tagComponent;
         input = new PlayerInputAction();
         cameraTransform = Camera.main.transform;
@@ -121,11 +139,9 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     {
         #region 获取玩家输入
         movement = input.Simple.Move.ReadValue<Vector2>();
-        jump = input.Simple.Jump.IsPressed();
-        lightAttack = input.Simple.LightAttack.WasPressedThisFrame();
-        defend = input.Simple.Parry.IsPressed();
-        aim = input.Simple.Aim.WasReleasedThisFrame();
-
+        jump = input.Simple.Jump.WasCompletedThisFrame();
+        defend = input.Simple.Parry.WasPressedThisFrame();
+        aim = input.Simple.Aim.WasPressedThisFrame();
         #endregion
         
         #region 位置改变
@@ -148,16 +164,26 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         #endregion
         
         #region 人物旋转
-        float rad = Mathf.Atan2(localMovement.x, localMovement.z);
-        playerModel.transform.Rotate(0,rad*rotationSpeed*Time.deltaTime,0);
+
+        if (!playerModel.isAiming && !playerModel.isAttacking)
+        {
+            if (worldMovement.magnitude > 0.1f)
+            {
+                Quaternion targetRotation = Quaternion.LookRotation(worldMovement.normalized);
+                playerModel.transform.rotation = Quaternion.Slerp(playerModel.transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            }
+        }
         #endregion
         
         #region 控制相机
-        //相机的方向向量
-        Vector3 cameraForward = new Vector3(cameraTransform.forward.x, 0, cameraTransform.forward.z).normalized;
-        //世界坐标下的方向向量
-        worldMovement = cameraForward * movement.y + cameraTransform.right * movement.x;
-        localMovement = playerModel.transform.InverseTransformVector(worldMovement);
+        if(!playerModel.isAiming||!playerModel.isAttacking)
+        {
+            //相机的方向向量
+            Vector3 cameraForward = new Vector3(cameraTransform.forward.x, 0, cameraTransform.forward.z).normalized;
+            //世界坐标下的方向向量
+            worldMovement = cameraForward * movement.y + cameraTransform.right * movement.x;
+            localMovement = playerModel.transform.InverseTransformVector(worldMovement);
+        }
         #endregion
         
         playerModel.isDefending = defend;
@@ -167,6 +193,8 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     {
         // 重置一些一帧有效的输入
         dodge = false;
+        lightAttack = false;
+        heavyAttack = false;
     }
 
     private void FixedUpdate()
