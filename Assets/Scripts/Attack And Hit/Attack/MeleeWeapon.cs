@@ -55,20 +55,19 @@ public class MeleeWeapon : MonoBehaviour
         // 检查对方是否也是一个 Weapon
         if (other.gameObject.layer == WeaponLayer)
         {
-            var otherWeapon = other.GetComponent<MeleeWeapon>();
-            // 确保对方武器也处于激活的攻击事件中，并且不是自己人
-            if (otherWeapon != null && otherWeapon._currentAttackEvent != null && otherWeapon._ownerClashable != this._ownerClashable)
+            var targetASC = other.GetComponentInParent<AbilitySystemComponent>();
+            if (targetASC != null)
             {
-                // 找到了！调用裁判
-                ClashManager.Instance.ResolveClash(_ownerClashable, otherWeapon._ownerClashable);
-                
-                // 标记双方都已拼刀
-                _hasClashedThisSwing = true;
-                otherWeapon._hasClashedThisSwing = true;
-                
-                // 拼刀后，立即结束本轮检测，不执行后续的伤害逻辑
-                return;
+                GameObject attacker = this.transform.root.gameObject;
+
+                targetASC.ApplyGameplayEffect(
+                    _currentAttackEvent.effect,
+                    attacker
+                );
+
+                _collidersHitThisSwing.Add(other);
             }
+
         }
         
         if ((hittableLayers.value & (1 << other.gameObject.layer)) == 0) return;
