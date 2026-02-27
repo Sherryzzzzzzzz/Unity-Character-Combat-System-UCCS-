@@ -142,14 +142,25 @@ public class TagComponent : MonoBehaviour
     {
         if (tag == null) return false;
 
-        foreach (var ownedTag in activeTags)
+        // Check permanent tags via reference-count dictionary
+        foreach (var kvp in _tagRefCounts)
         {
+            var ownedTag = kvp.Key;
             if (IsTagOrChild(ownedTag, tag)) return true;
         }
+
+        // Check transient tags
         foreach (var ownedTag in transientTags)
         {
             if (IsTagOrChild(ownedTag, tag)) return true;
         }
+
+        // Check cached tags (recently seen transient tags)
+        foreach (var cached in cachedTags)
+        {
+            if (IsTagOrChild(cached.Tag, tag)) return true;
+        }
+
         return false;
     }
 
