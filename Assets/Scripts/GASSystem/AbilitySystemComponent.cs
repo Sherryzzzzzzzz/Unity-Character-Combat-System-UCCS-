@@ -283,15 +283,22 @@ public class AbilitySystemComponent : MonoBehaviour
                 {
                     var mod = effect.modifiers[i];
                     var attrValue = Attributes.GetAttributeValue(mod.attribute);
-                    if (attrValue != null)
+                    if (attrValue == null)
                     {
-                        float magnitude = spec.GetMagnitude(i, this);
-                        var modifier = new AttributeModifier(mod.modifierType, magnitude);
-                        attrValue.AddModifier(modifier);
-                        appliedModifiers.Add((attrValue, modifier));
-                        activeEffect.RegisteredModifiers.Add(modifier);
+                        // Treat missing target attribute as an application failure to keep transactional semantics
+                        throw new System.Exception($"ApplyDurationEffect: target AttributeValue for {mod.attribute} is missing");
                     }
+
+                    float magnitude = spec.GetMagnitude(i, this);
+                    var modifier = new AttributeModifier(mod.modifierType, magnitude);
+                    attrValue.AddModifier(modifier);
+                    appliedModifiers.Add((attrValue, modifier));
+                    activeEffect.RegisteredModifiers.Add(modifier);
                 }
+            } else if (effect.modifiers.Count > 0)
+            {
+                // No AttributeSet on target but modifiers exist -> fail
+                throw new System.Exception("ApplyDurationEffect: Attributes is null but effect has modifiers");
             }
 
             // 授予标签

@@ -33,7 +33,9 @@ public class CommitAtomicityTests
 
         // current ability should not be set and cooldown should not be applied
         Assert.IsTrue(asc != null);
-        Assert.IsNull((System.Reflection.FieldInfo)typeof(AbilitySystemComponent).GetField("currentAbility", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(asc));
+        var field = typeof(AbilitySystemComponent).GetField("currentAbility", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var current = field?.GetValue(asc) as GameplayAbility;
+        Assert.IsNull(current);
 
         // cleanup
         Object.DestroyImmediate(go);
