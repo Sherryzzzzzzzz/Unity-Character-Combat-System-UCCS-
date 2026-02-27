@@ -29,6 +29,8 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
 
     public PlayerSkillComponent pac;
     public TargetingSystem ts;
+    public MeleeWeapon wp;
+    public AttributeSet attributeSet;
 
     // 技能动画资源
     public SkillTimelineAsset lightStart;//轻攻击起手式
@@ -80,6 +82,8 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
         pac = GetComponent<PlayerSkillComponent>();
         tagComponent = GetComponent<TagComponent>();
         ts = GetComponent<TargetingSystem>();
+        wp.Init(GetComponent<AbilitySystemComponent>());
+        attributeSet = GetComponent<AttributeSet>();
     }
 
     void Start()

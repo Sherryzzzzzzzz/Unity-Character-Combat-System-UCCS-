@@ -1,8 +1,5 @@
-using UnityEditor.UIElements;
-using UnityEngine;
-using UnityEngine.UIElements;
-
 using UnityEditor;
+using UnityEditor.UIElements;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -12,11 +9,10 @@ public class AttackEventFactory : ITimelineEventFactory
 
     public TimelineEventBase Create()
     {
-        // 默认生成一个持续 1 帧的攻击事件
         return new AttackEvent();
     }
-    
-    public TimelineEventBase CreateEvent() => new AttackEvent(); 
+
+    public TimelineEventBase CreateEvent() => new AttackEvent();
 
     public VisualElement CreateInspector(TimelineEventBase evt)
     {
@@ -26,114 +22,156 @@ public class AttackEventFactory : ITimelineEventFactory
         // ==========================
         // HitBox 名称
         // ==========================
-        var hitBoxField = new TextField("HitBox Name");
-        hitBoxField.value = atk.hitBoxName;
-        hitBoxField.RegisterValueChangedCallback(e => atk.hitBoxName = e.newValue);
+        var hitBoxField = new TextField("HitBox Name")
+        {
+            value = atk.hitBoxName
+        };
+
+        hitBoxField.RegisterValueChangedCallback(e =>
+        {
+            atk.hitBoxName = e.newValue;
+        });
+
         container.Add(hitBoxField);
-        
-        // ==========================
-        // 伤害值
-        // ==========================
-        var dmgField = new FloatField("Damage");
-        dmgField.value = atk.damage;
-        dmgField.RegisterValueChangedCallback(e => atk.damage = e.newValue);
-        container.Add(dmgField);
-        
-        // ==========================
-        // 削韧值
-        // ==========================
-        var poiseField = new FloatField("poiseDamage");
-        poiseField.value = atk.poiseDamage;
-        poiseField.RegisterValueChangedCallback(e => atk.poiseDamage = e.newValue);
-        container.Add(poiseField);
-        
-        // ==========================
-        // 击飞力度
-        // ==========================
-        var forceField = new FloatField("forceDamage");
-        forceField.value = atk.hitForce;
-        forceField.RegisterValueChangedCallback(e => atk.hitForce = e.newValue);
-        container.Add(forceField);
-        
-        // ==========================
-        // 施加力度的帧
-        // ==========================
-        var forceFrameField = new FloatField("forceFrame");
-        forceFrameField.value = atk.hitFrame;
-        forceFrameField.RegisterValueChangedCallback(e =>
-        {
-            atk.hitFrame = Mathf.Max(0, e.newValue);
-            if(atk.hitFrame> atk.EndFrame)
-                atk.hitFrame = atk.EndFrame;
-            if(atk.hitFrame < atk.StartFrame)
-                atk.hitFrame = atk.StartFrame;
-        });
-        container.Add(forceFrameField);
-        
-        // ==========================
-        // 施加力度的方向
-        // ==========================
-        var hitPosField = new Vector3Field("hitPosition");
-        hitPosField.value = atk.hitPosition;
-        hitPosField.RegisterValueChangedCallback(e => atk.hitPosition = e.newValue);
-        container.Add(hitPosField);
-        
-        var typeModeField = new EnumField("力度", AttackForceType.None);
-        typeModeField.RegisterValueChangedCallback(e =>
-        {
-            atk.forceType = (AttackForceType)e.newValue;
-        });
-        typeModeField.value = atk.forceType;
-        container.Add(typeModeField);
 
         // ==========================
-        // 帧区间（Start / End）
+        // AttackData 选择
         // ==========================
+        var attackDataField = new ObjectField("Attack Data")
+        {
+            objectType = typeof(AttackData),
+            allowSceneObjects = false,
+            value = atk.attackData
+        };
+
+        container.Add(attackDataField);
+
+        var attackDataContainer = new VisualElement();
+        attackDataContainer.style.marginTop = 8;
+        container.Add(attackDataContainer);
+
+        void DrawAttackDataInspector()
+        {
+            attackDataContainer.Clear();
+
+            if (atk.attackData == null)
+                return;
+
+            var so = new SerializedObject(atk.attackData);
+            var iterator = so.GetIterator();
+
+            iterator.NextVisible(true);
+
+            while (iterator.NextVisible(false))
+            {
+                if (iterator.name == "m_Script")
+                    continue;
+
+                var propField = new PropertyField(iterator.Copy());
+                propField.Bind(so);
+                attackDataContainer.Add(propField);
+            }
+
+            // ==========================
+            // 展开 GameplayEffect
+            // ==========================
+
+            if (atk.attackData.effect != null)
+            {
+                var effectLabel = new Label("Gameplay Effect");
+                effectLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+                effectLabel.style.marginTop = 6;
+                attackDataContainer.Add(effectLabel);
+
+                var effectSO = new SerializedObject(atk.attackData.effect);
+                var effectIterator = effectSO.GetIterator();
+
+                effectIterator.NextVisible(true);
+
+                while (effectIterator.NextVisible(false))
+                {
+                    if (effectIterator.name == "m_Script")
+                        continue;
+
+                    var propField = new PropertyField(effectIterator.Copy());
+                    propField.Bind(effectSO);
+                    attackDataContainer.Add(propField);
+                }
+            }
+        }
+
+        attackDataField.RegisterValueChangedCallback(e =>
+        {
+            atk.attackData = e.newValue as AttackData;
+            DrawAttackDataInspector();
+        });
+
+        DrawAttackDataInspector();
+        
+        var originField = new Vector3Field("Preview Origin")
+        {
+            value = atk.localOffset
+        };
+
+        originField.RegisterValueChangedCallback(e =>
+        {
+            atk.localOffset = e.newValue;
+        });
+
+        container.Add(originField);
+
+        var toggle = new Toggle("Use Preview Origin")
+        {
+            value = atk.useLocalOffset
+        };
+
+        toggle.RegisterValueChangedCallback(e =>
+        {
+            atk.useLocalOffset = e.newValue;
+        });
+
+        container.Add(toggle);
+
+        // ==========================
+        // 帧区间
+        // ==========================
+
         var frameRow = new VisualElement();
         frameRow.style.flexDirection = FlexDirection.Row;
-        frameRow.style.marginTop = 4;
-        frameRow.style.marginBottom = 4;
 
-        var startFrameField = new IntegerField("Start Frame");
-        startFrameField.value = atk.StartFrame;
+        var startFrameField = new IntegerField("Start Frame")
+        {
+            value = atk.StartFrame
+        };
+
         startFrameField.style.flexGrow = 1;
+
         startFrameField.RegisterValueChangedCallback(e =>
         {
             atk.StartFrame = Mathf.Max(0, e.newValue);
             if (atk.StartFrame > atk.EndFrame)
-                atk.EndFrame = atk.StartFrame; // 保证合法区间
+                atk.EndFrame = atk.StartFrame;
         });
 
-        var endFrameField = new IntegerField("End Frame");
-        endFrameField.value = atk.EndFrame;
+        var endFrameField = new IntegerField("End Frame")
+        {
+            value = atk.EndFrame
+        };
+
         endFrameField.style.flexGrow = 1;
+
         endFrameField.RegisterValueChangedCallback(e =>
         {
             atk.EndFrame = Mathf.Max(0, e.newValue);
             if (atk.EndFrame < atk.StartFrame)
-                atk.StartFrame = atk.EndFrame; // 自动交换
+                atk.StartFrame = atk.EndFrame;
         });
 
         frameRow.Add(startFrameField);
         frameRow.Add(endFrameField);
+
         container.Add(frameRow);
-
-        // ==========================
-        // 提示文字
-        // ==========================
-        var info = new Label($"当前区间: {atk.StartFrame} → {atk.EndFrame}");
-        info.style.color = new Color(0.8f, 0.8f, 0.8f);
-        container.Add(info);
-
-        // 监听刷新
-        void RefreshInfo()
-        {
-            info.text = $"当前区间: {atk.StartFrame} → {atk.EndFrame}";
-        }
-        startFrameField.RegisterValueChangedCallback(_ => RefreshInfo());
-        endFrameField.RegisterValueChangedCallback(_ => RefreshInfo());
 
         return container;
     }
 }
-

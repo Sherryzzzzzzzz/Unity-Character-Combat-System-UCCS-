@@ -374,7 +374,7 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
                 .SelectMany(t => t.events)
                 .OfType<AttackEvent>()
                 .FirstOrDefault();
-            return (int)attackEvent?.forceType;
+            return (int)attackEvent.attackData?.forceType;
         }
         return 0;
     }

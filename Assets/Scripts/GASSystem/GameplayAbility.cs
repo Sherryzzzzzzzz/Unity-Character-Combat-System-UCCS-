@@ -90,6 +90,9 @@ public abstract class GameplayAbility
     /// </summary>
     public bool CommitAbility()
     {
+        // 保存此前的冷却时间，以便在回滚时恢复
+        float prevLastCastTime = lastCastTime;
+
         // 扣除 Cost —— 如果 costEffect 存在则尝试施加并检查返回值
         try
         {
@@ -103,6 +106,8 @@ public abstract class GameplayAbility
         catch (System.Exception e)
         {
             Debug.LogWarning($"CommitAbility: ApplyGameplayEffect 抛出异常: {e}");
+            // 回滚任何可能在外部发生的冷却变更（防御性恢复为先前值）
+            lastCastTime = prevLastCastTime;
             return false;
         }
 
@@ -142,11 +147,13 @@ public abstract class GameplayAbility
         // 4. 激活
         if (!ActivateInternal()) return false;
         return true;
-        return true;
     }
 
     private bool ActivateInternal()
     {
+        // 保存此前冷却值以便回滚
+        float prevLastCastTime = lastCastTime;
+
         // Commit: 扣除 Cost + 启动冷却
         if (!CommitAbility())
             return false;
@@ -162,8 +169,29 @@ public abstract class GameplayAbility
         if (OwnerASC != null)
             OwnerASC.SetCurrentAbility(this);
 
-        // 调用子类实现
-        Activate();
+        // 调用子类实现，但保护子类抛出异常时进行回滚，确保不会留下半应用状态（标签/冷却/当前能力）
+        try
+        {
+            Activate();
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"ActivateInternal: Activate() 抛出异常，回滚能力激活: {e}");
+            // 使用 End() 做清理（End 已经实现对标签和 currentAbility 的移除）
+            try
+            {
+                End();
+            }
+            catch (System.Exception inner)
+            {
+                Debug.LogWarning($"ActivateInternal: End() 在回滚时也抛出异常: {inner}");
+            }
+
+            // 恢复冷却到先前状态
+            lastCastTime = prevLastCastTime;
+            return false;
+        }
+
         return true;
     }
 

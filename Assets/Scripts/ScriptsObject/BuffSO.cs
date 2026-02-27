@@ -2,6 +2,7 @@ using UnityEngine;
 
 public enum BuffStackingType { None, Refresh, Stack } // 不可叠加, 刷新时长, 叠加层数
 
+[System.Obsolete("使用 GameplayEffect（Duration/Infinite 类型）替代")]
 [CreateAssetMenu(fileName = "Buff_", menuName = "Gameplay/Buff")]
 public class BuffSO : ScriptableObject
 {
@@ -25,6 +26,7 @@ public class BuffSO : ScriptableObject
     public int maxStacks = 5; // 如果是叠加类型
 }
 
+[System.Obsolete("使用 GameplayEffect（Duration/Infinite 类型）替代")]
 public class Buff
 {
     public BuffSO Data { get; } // 对模板数据的引用

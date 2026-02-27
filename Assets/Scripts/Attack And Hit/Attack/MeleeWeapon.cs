@@ -15,6 +15,14 @@ public class MeleeWeapon : MonoBehaviour
     private IClashable _ownerClashable;
     private List<Collider> _collidersHitThisSwing;
     private bool _hasClashedThisSwing = false;
+    
+    private AbilitySystemComponent _ownerASC;
+
+    public void Init(AbilitySystemComponent ownerASC)
+    {
+        _ownerASC = ownerASC;
+    }
+
 
     private void Awake()
     {
@@ -51,22 +59,23 @@ public class MeleeWeapon : MonoBehaviour
         // *** 核心修改 1: 在所有逻辑之前，优先进行拼刀检测 ***
         // 如果本次挥击已经拼过刀，则后续所有检测（包括伤害）都跳过
         if (_hasClashedThisSwing) return;
-
+        
         // 检查对方是否也是一个 Weapon
         if (other.gameObject.layer == WeaponLayer)
         {
-            var targetASC = other.GetComponentInParent<AbilitySystemComponent>();
-            if (targetASC != null)
+            var otherWeapon = other.GetComponent<MeleeWeapon>();
+            if (otherWeapon != null && otherWeapon._currentAttackEvent != null)
             {
-                GameObject attacker = this.transform.root.gameObject;
-
-                targetASC.ApplyGameplayEffect(
-                    _currentAttackEvent.effect,
-                    attacker
+                ClashManager.Instance.ResolveClash(
+                    _ownerClashable,
+                    otherWeapon._ownerClashable
                 );
 
-                _collidersHitThisSwing.Add(other);
+                _hasClashedThisSwing = true;
+                otherWeapon._hasClashedThisSwing = true;
             }
+
+            return;
 
         }
         
@@ -79,7 +88,7 @@ public class MeleeWeapon : MonoBehaviour
         {
             _currentAttackEvent.hitObject = other.gameObject;
             _currentAttackEvent.hitPoint = other.ClosestPoint(transform.position);
-            hurtBoxManager.ProcessHit(_currentAttackEvent, this.transform.root.gameObject);
+            hurtBoxManager.ProcessHit(_currentAttackEvent, this.transform.root.gameObject, _ownerASC);
 
             _collidersHitThisSwing.Add(other);
         }
@@ -87,5 +96,6 @@ public class MeleeWeapon : MonoBehaviour
         {
             Debug.Log("HurtBoxManager not found on " + other.name);
         }
+
     }
 }

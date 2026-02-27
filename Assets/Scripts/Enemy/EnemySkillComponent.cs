@@ -236,7 +236,7 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
                 .OfType<AttackEvent>()
                 .FirstOrDefault();
             
-            return attackEvent != null ? (int)attackEvent.forceType : 0;
+            return attackEvent != null ? (int)attackEvent.attackData?.forceType : 0;
         }
         return 0;
     }

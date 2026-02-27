@@ -64,6 +64,7 @@ public class SkillEditorTimelineWindow : EditorWindow
     private TimelineEventBase _selectedEvent;
     private VisualElement _selectedEventClip;
     private HashSet<string> _activeHitboxes = new HashSet<string>();
+    private List<AttackEvent> _activeAttackEvents = new List<AttackEvent>();
 
     public int GetTotalFrames() => _totalFrames;
     public bool HasClip() => _clip != null;
@@ -73,7 +74,7 @@ public class SkillEditorTimelineWindow : EditorWindow
     private SkillTimelineAsset _lastDebugAsset = null;
     
     private AudioSource _previewAudioSource;
-
+    
     public void CreateGUI()
     {
         _root = rootVisualElement;
@@ -895,9 +896,14 @@ public class SkillEditorTimelineWindow : EditorWindow
         foreach (var track in _timelines) {
             foreach (var evt in track.events) {
                 // 注意这里的逻辑是“在...期间”，而不是“在...开始”
-                if (frame >= evt.StartFrame && frame < evt.EndFrame) { 
-                    if (evt is AttackEvent atk && !string.IsNullOrEmpty(atk.hitBoxName))
-                        _activeHitboxes.Add(atk.hitBoxName);
+                if (frame >= evt.StartFrame && frame < evt.EndFrame) {
+                    if (evt is AttackEvent atk)
+                    {
+                        if (!string.IsNullOrEmpty(atk.hitBoxName))
+                            _activeHitboxes.Add(atk.hitBoxName);
+
+                        _activeAttackEvents.Add(atk);
+                    }
                 }
             }
         }
@@ -938,6 +944,7 @@ public class SkillEditorTimelineWindow : EditorWindow
         }
         
         Handles.matrix = originalMatrix;
+        DrawAttackShapes();
     }
     
     private Transform FindDeepChild(Transform parent, string name) 
@@ -1025,4 +1032,98 @@ public class SkillEditorTimelineWindow : EditorWindow
         
         LoadAsset(null);
     }
+    
+    private void DrawAttackShapes()
+    {
+        if (_previewObj == null) return;
+        if (_activeAttackEvents == null) return;
+
+        Transform t = _previewObj.transform;
+
+        foreach (var atk in _activeAttackEvents)
+        {
+            if (atk == null || atk.attackData == null)
+                continue;
+
+            var data = atk.attackData;
+
+            if (data.radius <= 0 && data.length <= 0)
+                continue;
+
+            Vector3 center;
+            Vector3 forward;
+
+            if (atk.useLocalOffset)
+            {
+                center = t.position + t.rotation * atk.localOffset;
+                forward = t.rotation * atk.localForward;
+            }
+            else
+            {
+                center = t.position;
+                forward = t.forward;
+            }
+
+            if (forward.sqrMagnitude < 0.0001f)
+                forward = Vector3.forward;
+
+            forward.Normalize();
+
+            Handles.color = new Color(1f, 0.2f, 0.2f, 0.7f);
+
+            switch (data.shape)
+            {
+                case AttackShape.Sphere:
+                    SafeDrawSphere(center, data.radius);
+                    break;
+
+                case AttackShape.Capsule:
+                    SafeDrawCapsule(center, forward, data.radius, data.length);
+                    break;
+
+                case AttackShape.Cone:
+                    SafeDrawCone(center, forward, data.angle, data.length);
+                    break;
+            }
+        }
+    }
+
+
+    private void SafeDrawSphere(Vector3 center, float radius)
+    {
+        Handles.DrawWireDisc(center, Vector3.up, radius);
+        Handles.DrawWireDisc(center, Vector3.right, radius);
+        Handles.DrawWireDisc(center, Vector3.forward, radius);
+    }
+
+    private void SafeDrawCapsule(Vector3 center, Vector3 forward, float radius, float length)
+    {
+        Vector3 end = center + forward * length;
+
+        Vector3 right = Vector3.Cross(forward, Vector3.up);
+        if (right.sqrMagnitude < 0.0001f)
+            right = Vector3.right;
+
+        right.Normalize();
+
+        Handles.DrawWireDisc(center, forward, radius);
+        Handles.DrawWireDisc(end, forward, radius);
+
+        Handles.DrawLine(center + right * radius, end + right * radius);
+        Handles.DrawLine(center - right * radius, end - right * radius);
+    }
+
+    private void SafeDrawCone(Vector3 center, Vector3 forward, float angle, float length)
+    {
+        float halfAngle = angle * 0.5f;
+
+        Vector3 left = Quaternion.AngleAxis(-halfAngle, Vector3.up) * forward;
+        Vector3 right = Quaternion.AngleAxis(halfAngle, Vector3.up) * forward;
+
+        Handles.DrawLine(center, center + left * length);
+        Handles.DrawLine(center, center + right * length);
+
+        Handles.DrawWireArc(center, Vector3.up, left, angle, length);
+    }
+
 }

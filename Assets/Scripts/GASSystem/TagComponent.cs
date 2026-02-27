@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class TagComponent : MonoBehaviour
 {
-    private HashSet<GameplayTagSO> activeTags = new HashSet<GameplayTagSO>();
+    private readonly Dictionary<GameplayTagSO, int> _tagRefCounts = new Dictionary<GameplayTagSO, int>();
     private HashSet<GameplayTagSO> transientTags = new HashSet<GameplayTagSO>();
     
     // --- 新增：Buff 管理系统 ---
@@ -14,6 +14,7 @@ public class TagComponent : MonoBehaviour
     private class CachedTag { public GameplayTagSO Tag; public float Timestamp; }
     private readonly List<CachedTag> cachedTags = new List<CachedTag>();
     private const float CACHE_DURATION = 0.25f;
+    public System.Action<GameplayTagSO> OnTagAdded;
 
     void Update()
     {
@@ -56,12 +57,13 @@ public class TagComponent : MonoBehaviour
     public bool HasTag(GameplayTagSO tag)
     {
         if (tag == null) return false;
-        return activeTags.Contains(tag) || transientTags.Contains(tag);
+        if (transientTags.Contains(tag)) return true;
+        if (_tagRefCounts.TryGetValue(tag, out var count) && count > 0) return true;
+        return false;
     }
 
     /// <summary>
-    /// (消耗性) 尝试消耗一个 Tag。它会优先消耗瞬时 Tag，然后消耗缓存 Tag。
-    /// 这是 Normal 模式的核心。
+    /// (消耗性) 尝试消耗一个 Tag。它会优先消耗瞬时 Tag，然后减少引用计数或移除缓存 Tag。
     /// </summary>
     /// <returns>如果成功消耗了 Tag，返回 true。</returns>
     public bool ConsumeTag(GameplayTagSO tag)
@@ -76,7 +78,16 @@ public class TagComponent : MonoBehaviour
             return true;
         }
 
-        // 2. 如果瞬时 Tag 中没有，再检查并消耗缓存 Tag
+        // 2. 尝试减少引用计数
+        if (_tagRefCounts.TryGetValue(tag, out var count) && count > 0)
+        {
+            _tagRefCounts[tag] = count - 1;
+            if (_tagRefCounts[tag] <= 0)
+                _tagRefCounts.Remove(tag);
+            return true;
+        }
+
+        // 3. 如果瞬时 Tag 中没有，再检查并消耗缓存 Tag
         for (int i = cachedTags.Count - 1; i >= 0; i--)
         {
             if (cachedTags[i].Tag == tag)
@@ -88,23 +99,72 @@ public class TagComponent : MonoBehaviour
 
         return false;
     }
-    
+
     /// <summary>
-    /// 授予一个永久性 Tag。
+    /// 授予一个永久性 Tag（引用计数）
     /// </summary>
     public void AddTag(GameplayTagSO tag)
     {
         if (tag == null) return;
-        activeTags.Add(tag);
+
+        if (_tagRefCounts.TryGetValue(tag, out var count))
+        {
+            _tagRefCounts[tag] = count + 1;
+        }
+        else
+        {
+            _tagRefCounts[tag] = 1;
+            OnTagAdded?.Invoke(tag);
+        }
     }
 
     /// <summary>
-    /// 移除一个永久性 Tag。
+    /// 移除一个永久性 Tag（减少引用计数）
     /// </summary>
     public void RemoveTag(GameplayTagSO tag)
     {
         if (tag == null) return;
-        activeTags.Remove(tag);
+        if (_tagRefCounts.TryGetValue(tag, out var count))
+        {
+            count--;
+            if (count <= 0)
+                _tagRefCounts.Remove(tag);
+            else
+                _tagRefCounts[tag] = count;
+        }
+    }
+
+    /// <summary>
+    /// 层级匹配：检查是否拥有指定标签本身或其任意子标签
+    /// 遍历所有活跃标签和瞬态标签，检查每个标签的 parentTag 链是否包含目标标签
+    /// </summary>
+    public bool HasTagOrChild(GameplayTagSO tag)
+    {
+        if (tag == null) return false;
+
+        foreach (var ownedTag in activeTags)
+        {
+            if (IsTagOrChild(ownedTag, tag)) return true;
+        }
+        foreach (var ownedTag in transientTags)
+        {
+            if (IsTagOrChild(ownedTag, tag)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 检查 ownedTag 是否等于 targetTag 或是 targetTag 的子标签
+    /// </summary>
+    private bool IsTagOrChild(GameplayTagSO ownedTag, GameplayTagSO targetTag)
+    {
+        var current = ownedTag;
+        while (current != null)
+        {
+            if (current == targetTag) return true;
+            current = current.parentTag;
+        }
+        return false;
     }
     
     public bool TryAddTransientTag(GameplayTagSO tag)

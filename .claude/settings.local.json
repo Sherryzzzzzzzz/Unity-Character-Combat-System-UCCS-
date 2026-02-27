@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd:*)",
+      "Bash(cd \"D:/GithubProject/Unity-Character-Combat-System-UCCS-\" && openspec new change \"fix-gas-component-errors\" 2>&1)",
+      "Bash(cd \"D:/GithubProject/Unity-Character-Combat-System-UCCS-\" && openspec status --change \"fix-gas-component-errors\" --json 2>&1)"
+    ]
+  }
+}
