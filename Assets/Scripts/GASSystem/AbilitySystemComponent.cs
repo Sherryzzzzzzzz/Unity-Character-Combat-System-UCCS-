@@ -130,11 +130,11 @@ public class AbilitySystemComponent : MonoBehaviour
     /// 便捷方法：向后兼容的效果施加入口
     /// 内部创建 Spec 并委托给 ApplyEffectSpec
     /// </summary>
-    public void ApplyGameplayEffect(GameplayEffect effect, AbilitySystemComponent attackerASC)
+    public int ApplyGameplayEffect(GameplayEffect effect, AbilitySystemComponent attackerASC)
     {
-        if (effect == null) return;
+        if (effect == null) return -1;
         var spec = new GameplayEffectSpec(effect, attackerASC);
-        ApplyEffectSpec(spec);
+        return ApplyEffectSpec(spec);
     }
 
     // Convenience overload to apply effect where caller can specify both instigator and explicit target ASC
@@ -447,8 +447,8 @@ public class AbilitySystemComponent : MonoBehaviour
                         if (attrValue != null)
                         {
                             var registeredModifier = activeEffect.RegisteredModifiers[modIndex];
-                            if (registeredModifier != null)
-                                attrValue.RemoveModifier(registeredModifier);
+                            // AttributeModifier is a struct (value type) — remove without null check
+                            attrValue.RemoveModifier(registeredModifier);
                         }
                     }
                     catch (System.Exception e)
