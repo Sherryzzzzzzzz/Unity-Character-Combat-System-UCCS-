@@ -57,6 +57,30 @@ public class HurtBoxManager : MonoBehaviour
         // 格挡
         if (_tagComponent.HasTag(guardingTag))
         {
+            // 若配置了 Stagger 效果，则尝试对攻击者施加
+            // 按约定：在攻击者的 ASC 上调用 ApplyGameplayEffect(effect, instigatorASC)
+            if (hit.attackData != null && hit.attackData.staggerEffect != null)
+            {
+                var stagger = hit.attackData.staggerEffect;
+                AbilitySystemComponent attackerAscLocal = attackerASC ?? attacker?.GetComponent<AbilitySystemComponent>();
+                if (attackerAscLocal != null)
+                {
+                    try
+                    {
+                        int handle = attackerAscLocal.ApplyGameplayEffect(stagger, _asc);
+                        // 若成功施加（handle > 0），中断攻击者当前能力
+                        if (handle > 0)
+                        {
+                            attackerAscLocal.InterruptCurrentAbility();
+                        }
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogWarning($"HurtBoxManager: applying stagger effect threw: {e}");
+                    }
+                }
+            }
+
             return;
         }
 

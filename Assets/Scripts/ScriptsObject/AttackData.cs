@@ -6,6 +6,10 @@ public class AttackData : ScriptableObject
     [Header("Gameplay Effect")]
     public GameplayEffect effect;
 
+    [Header("Stagger")]
+    [Tooltip("Optional stagger effect to apply to the attacker when this attack is blocked")]
+    public GameplayEffect staggerEffect;
+
     [Header("Force Settings")]
     public float hitForce = 100f;
     public float hitFrame = 5f;
