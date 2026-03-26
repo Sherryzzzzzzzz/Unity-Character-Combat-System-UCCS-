@@ -22,6 +22,10 @@ public class PlayerGroundState : PlayerStateBase
         if (playerModel.isAttacking)
             return;
 
+        // ✅ 如果正在受击，只允许移动，不响应动作输入
+        if (playerModel.isHitting)
+            return;
+
         // === 正常移动逻辑 ===
         if (playerController.running)
         {

@@ -9,7 +9,7 @@ public class ActiveGameplayEffect
     private static int _nextHandle = 1;
 
     /// <summary>
-    /// 唯一标识句柄，用于外部追踪和按句柄移除
+    /// 唯一标识句柄
     /// </summary>
     public int Handle { get; }
 
@@ -17,7 +17,7 @@ public class ActiveGameplayEffect
     public AbilitySystemComponent InstigatorASC { get; }
 
     /// <summary>
-    /// 关联的 GameplayEffectSpec，持有属性快照用于周期 Tick
+    /// 关联的 GameplayEffectSpec，持有属性快照
     /// </summary>
     public GameplayEffectSpec Spec { get; }
 
@@ -25,7 +25,7 @@ public class ActiveGameplayEffect
     public int CurrentStacks { get; private set; }
     public bool IsExpired => EffectData.durationPolicy == DurationPolicy.Duration && TimeRemaining <= 0f;
 
-    // 已注册到 AttributeSet 的修改器引用，移除时需要清理
+    // 已注册到 AttributeSet 的修改器引用
     public List<AttributeModifier> RegisteredModifiers { get; } = new List<AttributeModifier>();
 
     private float _periodTimer;
@@ -47,17 +47,15 @@ public class ActiveGameplayEffect
     }
 
     /// <summary>
-    /// 每帧更新：递减时间、处理周期 Tick
+    /// 每帧更新
     /// </summary>
     public void Tick(float deltaTime)
     {
-        // 递减持续时间（仅 Duration 类型）
         if (EffectData.durationPolicy == DurationPolicy.Duration)
         {
             TimeRemaining -= deltaTime;
         }
 
-        // 周期 Tick
         if (EffectData.period > 0f)
         {
             _periodTimer += deltaTime;
@@ -71,11 +69,19 @@ public class ActiveGameplayEffect
     }
 
     /// <summary>
-    /// 刷新持续时间（用于 RefreshDuration 和 AddStacks 堆叠策略）
+    /// 刷新持续时间（重置为最大值）
     /// </summary>
     public void Refresh()
     {
         TimeRemaining = EffectData.duration;
+    }
+
+    /// <summary>
+    /// 延长持续时间（在剩余时间上追加）
+    /// </summary>
+    public void Extend(float additionalTime)
+    {
+        TimeRemaining += additionalTime;
     }
 
     /// <summary>
@@ -88,5 +94,16 @@ public class ActiveGameplayEffect
             CurrentStacks++;
         }
         Refresh();
+    }
+
+    /// <summary>
+    /// 减少一层堆叠
+    /// </summary>
+    public void RemoveStack()
+    {
+        if (CurrentStacks > 0)
+        {
+            CurrentStacks--;
+        }
     }
 }

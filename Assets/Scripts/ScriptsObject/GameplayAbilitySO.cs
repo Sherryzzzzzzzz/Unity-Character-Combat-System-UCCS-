@@ -9,6 +9,14 @@ public class GameplayAbilitySO : ScriptableObject
 
     [Header("冷却")]
     public float cooldown = 0f;
+    [Tooltip("标签驱动 CD：激活时施加的冷却效果（DurationPolicy 应为 Duration）")]
+    public GameplayEffect cooldownEffect;
+    [Tooltip("标签驱动 CD：冷却期间授予的标签")]
+    public GameplayTagSO cooldownTag;
+    [Tooltip("充能 CD：最大充能数（1 = 普通 CD）")]
+    public int maxCharges = 1;
+    [Tooltip("充能 CD：每次充能恢复时间（0 = 使用 cooldownEffect.duration）")]
+    public float chargeRecoveryTime = 0f;
 
     [Header("标签")]
     [Tooltip("激活时要求目标拥有的标签")]

@@ -7,7 +7,8 @@ using UnityEngine;
 public enum ModifierType
 {
     Additive,       // 加法修改器
-    Multiplicative  // 乘法修改器
+    Multiplicative, // 乘法修改器
+    Override        // 覆盖修改器（取最后一个或按 AggregatorMode 选择）
 }
 
 /// <summary>
@@ -30,7 +31,8 @@ public enum CaptureSource
 }
 
 /// <summary>
-/// 属性修改器，用于动态修改 AttributeValue
+/// 属性修改器，用于动态修改 AttributeValue。
+/// 增强版：支持 Source 引用（ActiveGameplayEffect）和 Override 类型。
 /// </summary>
 [Serializable]
 public struct AttributeModifier
@@ -38,10 +40,25 @@ public struct AttributeModifier
     public ModifierType type;
     public float value;
 
+    /// <summary>
+    /// 修改器来源的 ActiveGameplayEffect 引用（用于 StackCount 感知）。
+    /// 对于 Instant 效果或手动创建的修改器可为 null。
+    /// </summary>
+    [NonSerialized]
+    public ActiveGameplayEffect Source;
+
     public AttributeModifier(ModifierType type, float value)
     {
         this.type = type;
         this.value = value;
+        this.Source = null;
+    }
+
+    public AttributeModifier(ModifierType type, float value, ActiveGameplayEffect source)
+    {
+        this.type = type;
+        this.value = value;
+        this.Source = source;
     }
 }
 

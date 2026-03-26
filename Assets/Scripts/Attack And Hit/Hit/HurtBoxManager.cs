@@ -15,6 +15,7 @@ public class HurtBoxManager : MonoBehaviour
     public GameplayTagSO normalParryTag;
     public GameplayTagSO guardingTag;
     public GameplayTagSO parrySuccessTag;
+    public GameplayTagSO perfectDodgeTag;
 
     private TagComponent _tagComponent;
     
@@ -37,6 +38,17 @@ public class HurtBoxManager : MonoBehaviour
     private void Update()
     {
         isHitting = hitReactionController.isHitting;
+    }
+
+    /// <summary>
+    /// 强制重置受击状态，清除整条链路（HitReactionController + HurtBoxManager）。
+    /// 由 PlayerModel 超时安全网调用。
+    /// </summary>
+    public void ForceResetHitState()
+    {
+        if (hitReactionController != null)
+            hitReactionController.ForceReset();
+        isHitting = false;
     }
 
     public void ProcessHit(AttackEvent hit, GameObject attacker, AbilitySystemComponent attackerASC = null)
@@ -68,15 +80,75 @@ public class HurtBoxManager : MonoBehaviour
                     try
                     {
                         int handle = attackerAscLocal.ApplyGameplayEffect(stagger, _asc);
-                        // 若成功施加（handle > 0），中断攻击者当前能力
+                        // 若成功施加（handle > 0），中断攻击者当前能力 — 我们 prefer 使用 effect 授予的 tag 回调来中断以避免 race condition。
                         if (handle > 0)
                         {
-                            attackerAscLocal.InterruptCurrentAbility();
+                            var attackerTagComp = attackerAscLocal.GetComponent<TagComponent>();
+                            bool alreadyHasStaggerTag = false;
+                            if (attackerTagComp != null && stagger != null)
+                            {
+                                foreach (var granted in stagger.grantedTags)
+                                {
+                                    if (granted != null && attackerTagComp.HasTag(granted))
+                                    {
+                                        alreadyHasStaggerTag = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // 如果目标尚未接收到 Stagger 标签，作为防御性回退我们直接中断
+                            if (!alreadyHasStaggerTag)
+                            {
+                                attackerAscLocal.InterruptCurrentAbility();
+                            }
                         }
                     }
                     catch (System.Exception e)
                     {
                         Debug.LogWarning($"HurtBoxManager: applying stagger effect threw: {e}");
+                    }
+                }
+            }
+
+            return;
+        }
+
+        if (perfectDodgeTag != null && _tagComponent.HasTag(perfectDodgeTag))
+        {
+            if (hit.attackData != null && hit.attackData.perfectDodgePunishEffect != null)
+            {
+                var punish = hit.attackData.perfectDodgePunishEffect;
+                AbilitySystemComponent attackerAscLocal = attackerASC ?? attacker?.GetComponent<AbilitySystemComponent>();
+                if (attackerAscLocal != null)
+                {
+                    try
+                    {
+                        int handle = attackerAscLocal.ApplyGameplayEffect(punish, _asc);
+                        if (handle > 0)
+                        {
+                            // same defensive fallback: if tag not yet present on attacker, interrupt
+                            var attackerTagComp = attackerAscLocal.GetComponent<TagComponent>();
+                            bool alreadyHasPunishTag = false;
+                            if (attackerTagComp != null && punish != null)
+                            {
+                                foreach (var granted in punish.grantedTags)
+                                {
+                                    if (granted != null && attackerTagComp.HasTag(granted))
+                                    {
+                                        alreadyHasPunishTag = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if (!alreadyHasPunishTag)
+                                attackerAscLocal.InterruptCurrentAbility();
+                        }
+                    }
+                    catch (System.Exception e)
+                    {
+                        Debug.LogWarning($"HurtBoxManager: applying perfect-dodge punish effect threw: {e}");
                     }
                 }
             }

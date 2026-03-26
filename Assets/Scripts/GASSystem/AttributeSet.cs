@@ -1,15 +1,24 @@
 using UnityEngine;
 using System;
+using System.Collections.Generic;
+
+/// <summary>
+/// Inspector 可配置的属性初始条目
+/// </summary>
+[Serializable]
+public struct AttributeInitEntry
+{
+    public GameplayAttribute attribute;
+    public float baseValue;
+}
 
 public class AttributeSet : MonoBehaviour
 {
     [Header("Health")]
     public float Health;
-    [SerializeField] private AttributeValue _healthMax = new AttributeValue(100f);
 
     [Header("Poise (韧性)")]
     public float Poise;
-    [SerializeField] private AttributeValue _poiseMax = new AttributeValue(50f);
 
     [Tooltip("多久未受击开始恢复")]
     public float PoiseRecoverDelay = 3f;
@@ -17,15 +26,26 @@ public class AttributeSet : MonoBehaviour
     [Tooltip("每秒恢复多少韧性")]
     public float PoiseRecoverRate = 10f;
 
-    [Header("Combat")]
-    [SerializeField] private AttributeValue _attackPower = new AttributeValue(10f);
-    [SerializeField] private AttributeValue _defense = new AttributeValue(5f);
+    [Header("属性配置")]
+    [Tooltip("Inspector 中配置的属性初始值列表")]
+    [SerializeField] private List<AttributeInitEntry> _attributeInitList = new List<AttributeInitEntry>
+    {
+        new AttributeInitEntry { attribute = GameplayAttribute.AttackPower, baseValue = 10f },
+        new AttributeInitEntry { attribute = GameplayAttribute.Defense, baseValue = 5f },
+        new AttributeInitEntry { attribute = GameplayAttribute.HealthMax, baseValue = 100f },
+        new AttributeInitEntry { attribute = GameplayAttribute.PoiseMax, baseValue = 50f },
+    };
 
-    // 兼容性属性访问器，返回聚合值
-    public float AttackPower => _attackPower.GetCurrentValue();
-    public float Defense => _defense.GetCurrentValue();
-    public float HealthMax => _healthMax.GetCurrentValue();
-    public float PoiseMax => _poiseMax.GetCurrentValue();
+    /// <summary>
+    /// 运行时属性字典
+    /// </summary>
+    private readonly Dictionary<GameplayAttribute, AttributeValue> _attributes = new Dictionary<GameplayAttribute, AttributeValue>();
+
+    // 兼容性属性访问器
+    public float AttackPower => GetAttributeCurrentValue(GameplayAttribute.AttackPower);
+    public float Defense => GetAttributeCurrentValue(GameplayAttribute.Defense);
+    public float HealthMax => GetAttributeCurrentValue(GameplayAttribute.HealthMax);
+    public float PoiseMax => GetAttributeCurrentValue(GameplayAttribute.PoiseMax);
 
     private float _lastPoiseHitTime;
     private bool _isBroken;
@@ -45,15 +65,35 @@ public class AttributeSet : MonoBehaviour
 
     private void Awake()
     {
-        // 为每个 AttributeValue 注册变更回调，转发到通用事件
-        _attackPower.OnValueChanged = (oldVal, newVal) =>
-            OnAttributeChanged?.Invoke(GameplayAttribute.AttackPower, oldVal, newVal);
-        _defense.OnValueChanged = (oldVal, newVal) =>
-            OnAttributeChanged?.Invoke(GameplayAttribute.Defense, oldVal, newVal);
-        _healthMax.OnValueChanged = (oldVal, newVal) =>
-            OnAttributeChanged?.Invoke(GameplayAttribute.HealthMax, oldVal, newVal);
-        _poiseMax.OnValueChanged = (oldVal, newVal) =>
-            OnAttributeChanged?.Invoke(GameplayAttribute.PoiseMax, oldVal, newVal);
+        // 从 Inspector 配置列表初始化属性字典
+        foreach (var entry in _attributeInitList)
+        {
+            if (!_attributes.ContainsKey(entry.attribute))
+            {
+                var attrValue = new AttributeValue(entry.baseValue);
+                _attributes[entry.attribute] = attrValue;
+            }
+        }
+
+        // 确保核心属性存在（即使 Inspector 列表为空也有默认值）
+        EnsureAttribute(GameplayAttribute.AttackPower, 10f);
+        EnsureAttribute(GameplayAttribute.Defense, 5f);
+        EnsureAttribute(GameplayAttribute.HealthMax, 100f);
+        EnsureAttribute(GameplayAttribute.PoiseMax, 50f);
+
+        // 注册变更回调和钳制
+        foreach (var kvp in _attributes)
+        {
+            var attr = kvp.Key;
+            var attrValue = kvp.Value;
+
+            // 转发到通用事件
+            attrValue.OnValueChanged = (oldVal, newVal) =>
+                OnAttributeChanged?.Invoke(attr, oldVal, newVal);
+
+            // 属性钳制：确保聚合值不低于 0
+            attrValue.OnPreAttributeChange = (val) => Mathf.Max(0f, val);
+        }
     }
 
     private void Start()
@@ -136,21 +176,58 @@ public class AttributeSet : MonoBehaviour
     }
 
     // ========================
-    // 属性修改器访问
+    // 属性访问
     // ========================
 
     /// <summary>
-    /// 根据枚举获取对应的 AttributeValue，供 ASC 注册/移除修改器
+    /// 根据枚举获取对应的 AttributeValue，供 ASC 注册/移除修改器。
+    /// 支持动态注册的属性。
     /// </summary>
     public AttributeValue GetAttributeValue(GameplayAttribute attribute)
     {
-        switch (attribute)
-        {
-            case GameplayAttribute.AttackPower: return _attackPower;
-            case GameplayAttribute.Defense: return _defense;
-            case GameplayAttribute.HealthMax: return _healthMax;
-            case GameplayAttribute.PoiseMax: return _poiseMax;
-            default: return null;
-        }
+        if (_attributes.TryGetValue(attribute, out var attrValue))
+            return attrValue;
+        return null;
+    }
+
+    /// <summary>
+    /// 运行时动态注册一个新属性
+    /// </summary>
+    public AttributeValue RegisterAttribute(GameplayAttribute attribute, float baseValue)
+    {
+        if (_attributes.TryGetValue(attribute, out var existing))
+            return existing;
+
+        var attrValue = new AttributeValue(baseValue);
+        attrValue.OnValueChanged = (oldVal, newVal) =>
+            OnAttributeChanged?.Invoke(attribute, oldVal, newVal);
+        attrValue.OnPreAttributeChange = (val) => Mathf.Max(0f, val);
+        _attributes[attribute] = attrValue;
+        return attrValue;
+    }
+
+    /// <summary>
+    /// 检查是否已注册某个属性
+    /// </summary>
+    public bool HasAttribute(GameplayAttribute attribute)
+    {
+        return _attributes.ContainsKey(attribute);
+    }
+
+    // ========================
+    // 内部辅助
+    // ========================
+
+    private float GetAttributeCurrentValue(GameplayAttribute attribute)
+    {
+        if (_attributes.TryGetValue(attribute, out var attrValue))
+            return attrValue.GetCurrentValue();
+        return 0f;
+    }
+
+    private void EnsureAttribute(GameplayAttribute attribute, float defaultBaseValue)
+    {
+        if (!_attributes.ContainsKey(attribute))
+            _attributes[attribute] = new AttributeValue(defaultBaseValue);
     }
 }

@@ -30,6 +30,10 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
     [Header("Attack Data Asset")]
     public AttackData attackData;
 
+    [Header("Target System 模式")]
+    [Tooltip("启用后使用 SearchParameters/TargetData 替代直接 Physics 调用")]
+    public bool useTargetSystem = false;
+
     // --- 运行时数据 ---
     private Transform _hitBoxTransform;
     private Vector3 _startPosition;
@@ -155,6 +159,7 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
         newEvent.useLocalOffset = useLocalOffset;
         newEvent.localOffset = localOffset;
         newEvent.localForward = localForward;
+        newEvent.useTargetSystem = useTargetSystem;
 
         return newEvent;
     }
@@ -182,6 +187,12 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
 
         GetAttackBasis(owner, out var center, out var forward);
 
+        if (useTargetSystem)
+        {
+            ExecuteWithTargetSystem(ownerASC, center, forward);
+            return;
+        }
+
         switch (attackData.shape)
         {
             case AttackShape.Sphere:
@@ -196,6 +207,68 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
                 ExecuteCone(ownerASC, center, forward);
                 break;
         }
+    }
+
+    private void ExecuteWithTargetSystem(AbilitySystemComponent ownerASC, Vector3 center, Vector3 forward)
+    {
+        var sp = new SearchParameters { TargetLayer = attackData.hitLayerMask, ExcludeSelf = true };
+
+        switch (attackData.shape)
+        {
+            case AttackShape.Sphere:
+                sp.Shape = SearchShape.Circle;
+                sp.Radius = attackData.radius;
+                break;
+            case AttackShape.Capsule:
+                sp.Shape = SearchShape.Rectangle;
+                sp.Length = attackData.length;
+                sp.Width = attackData.radius * 2f;
+                break;
+            case AttackShape.Cone:
+                sp.Shape = SearchShape.Sector;
+                sp.Radius = attackData.length;
+                sp.Angle = attackData.angle;
+                break;
+            default:
+                return;
+        }
+
+        var data = new TargetData { Origin = center, Direction = forward, Range = sp.Radius };
+        Collider[] hits = null;
+
+        switch (sp.Shape)
+        {
+            case SearchShape.Circle:
+                hits = Physics.OverlapSphere(center, sp.Radius, sp.TargetLayer);
+                break;
+            case SearchShape.Sector:
+                hits = Physics.OverlapSphere(center, sp.Radius, sp.TargetLayer);
+                break;
+            case SearchShape.Rectangle:
+                var boxCenter = center + forward * (sp.Length / 2f);
+                var boxSize = new Vector3(sp.Width, 2f, sp.Length);
+                hits = Physics.OverlapBox(boxCenter, boxSize / 2f, Quaternion.LookRotation(forward), sp.TargetLayer);
+                break;
+        }
+
+        if (hits == null) return;
+
+        foreach (var col in hits)
+        {
+            var targetASC = col.GetComponentInParent<AbilitySystemComponent>();
+            if (targetASC == null || targetASC == ownerASC) continue;
+
+            if (sp.Shape == SearchShape.Sector)
+            {
+                Vector3 dir = (col.transform.position - center).normalized;
+                if (Vector3.Angle(forward, dir) > sp.Angle * 0.5f) continue;
+            }
+
+            data.TargetActors.Add(targetASC);
+        }
+
+        // 通过 TargetData 应用效果
+        ownerASC.ApplyEffectToTargets(attackData.effect, data);
     }
 
 

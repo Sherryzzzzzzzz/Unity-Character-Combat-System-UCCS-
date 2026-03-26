@@ -32,6 +32,9 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
     
     private readonly List<LoopEvent> activeLoopEvents = new List<LoopEvent>();
 
+    // 追踪已触发 OnStart 但未触发 OnEnd 的事件，用于 StopAndCleanup 时完整清理
+    private readonly HashSet<ITimelineEventRuntime> _activeEvents = new HashSet<ITimelineEventRuntime>();
+
     private InputActionReference cachedInputAction = null;
     private float cachedInputTimer = 0f;
     private const float CachedInputExpire = 0.25f;
@@ -110,7 +113,11 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
             return;
         }
         
-        // --- 循环逻辑 (保持不变) ---
+        // --- 先更新 currentFrame，再检查循环 ---
+        int previousFrame = currentFrame;
+        currentFrame = Mathf.FloorToInt(state.Time * state.Clip.frameRate);
+
+        // --- 循环逻辑：使用当前帧的真实值进行回跳判断 ---
         if (activeLoopEvents.Count > 0)
         {
             var activeLoop = activeLoopEvents[0];
@@ -123,13 +130,10 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
             {
                 float loopStartTime = (float)activeLoop.StartFrame / state.Clip.frameRate;
                 state.Time = loopStartTime;
+                currentFrame = activeLoop.StartFrame;
                 return;
             }
         }
-        
-        // --- 【核心修复】常规帧更新和事件触发 ---
-        int previousFrame = currentFrame;
-        currentFrame = Mathf.FloorToInt(state.Time * state.Clip.frameRate);
         
         // 只在帧前进时才触发事件
         if (currentFrame > previousFrame)
@@ -164,7 +168,11 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
                 foreach (var evt in starts.ToArray())
                 {
                     evt.OnStart(gameObject);
-                    if (evt is LoopEvent loop) activeLoopEvents.Add(loop);
+                    _activeEvents.Add(evt);
+                    if (evt is LoopEvent loop)
+                    {
+                        activeLoopEvents.Add(loop);
+                    }
                     if (evt is CancelEvent cancel) _activeCancelEvents.Add(cancel);
                     if (evt is ComboEvent combo)
                     {
@@ -179,6 +187,7 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
                 foreach (var evt in ends.ToArray())
                 {
                     evt.OnEnd(gameObject);
+                    _activeEvents.Remove(evt);
                     if (evt is LoopEvent loop) activeLoopEvents.Remove(loop);
                     if (evt is CancelEvent cancel) _activeCancelEvents.Remove(cancel);
                 }
@@ -234,6 +243,7 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
         frameEndEvents.Clear();
         activeLoopEvents.Clear();
         _activeCancelEvents.Clear();
+        _activeEvents.Clear();
 
         if (skill.tracks != null)
         {
@@ -297,20 +307,32 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
         _debuggingSkillAsset = null;
         currentFrame = 0;
         maxFrame = 0;
-        
+
         activeLoopEvents.Clear();
         _activeCancelEvents.Clear();
+
+        // 对所有已 OnStart 但未 OnEnd 的事件触发 OnEnd，确保 HitBoxEvent 等清理逻辑执行
+        foreach (var evt in _activeEvents)
+        {
+            try { evt.OnEnd(gameObject); }
+            catch (Exception e) { Debug.LogWarning($"PlayerSkillComponent: event OnEnd cleanup threw: {e}"); }
+        }
+        _activeEvents.Clear();
         
         foreach (var detector in _clashDetectors) detector.Deactivate();
 
-        if (_AttackLayer != null) _AttackLayer.StartFade(0f, attackFadeOutDuration);
+        // 仅在进入 GuardState 时保留攻击层（OnSkillEnd 回调中可能已切入 guard）
+        var modelForFade = GetComponent<PlayerModel>();
+        bool keepAttackLayer = modelForFade != null && modelForFade._PlayerState == PlayerState.guard;
+        if (_AttackLayer != null && !keepAttackLayer)
+            _AttackLayer.StartFade(0f, attackFadeOutDuration);
 
         if (clearCache) { cachedInputAction = null; cachedInputTimer = 0f; }
 
         if (triggerDefaultStateChange)
         {
             var model = GetComponent<PlayerModel>();
-            if (model != null && !model.isAttacking) 
+            if (model != null && model._PlayerState != PlayerState.guard)
             {
                 model.isComboChain = false;
         

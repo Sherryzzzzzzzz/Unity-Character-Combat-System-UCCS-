@@ -26,6 +26,7 @@ public class Parryable : MonoBehaviour
     private TagComponent _tagComponent;
     private AnimancerComponent _animancer;
     private Coroutine _parryRecoveryCoroutine;
+    private bool _parryRecovered;
     
     // --- (可选) 行为控制接口 ---
     // 为了解耦，我们可以定义一个接口来中断行为
@@ -63,7 +64,7 @@ public class Parryable : MonoBehaviour
     {
         Debug.Log($"'{gameObject.name}' 的攻击被弹反了！");
 
-        // 1. 施加“被弹反”硬直 Buff
+        // 1. 施加”被弹反”硬直 Buff
         if (parriedStunBuff != null)
         {
             _tagComponent.ApplyBuff(parriedStunBuff, this.gameObject);
@@ -73,23 +74,60 @@ public class Parryable : MonoBehaviour
         //    (例如，停止正在播放的攻击动画)
         var attackComponent = GetComponent<PlayerSkillComponent>() ?? (Component)GetComponent<EnemySkillComponent>();
         attackComponent?.SendMessage("StopAndCleanup", SendMessageOptions.DontRequireReceiver);
-        
+
         // (可选) 通过接口禁用更高级的行为，如行为树
         _behaviorController?.InterruptAndDisableBehavior();
 
-        // 3. 播放“被弹反”的大硬直动画
+        // 取消之前的超时协程（如果有）
+        if (_parryRecoveryCoroutine != null)
+        {
+            StopCoroutine(_parryRecoveryCoroutine);
+            _parryRecoveryCoroutine = null;
+        }
+        _parryRecovered = false;
+
+        // 3. 播放”被弹反”的大硬直动画
         if (_animancer != null && parriedAnimation != null)
         {
             // 在一个高优先级的层上播放，以覆盖所有其他动画
             var state = _animancer.Layers[3].Play(parriedAnimation); // 假设 Layer 3 是最高优先级的效果层
             _animancer.Layers[3].SetWeight(1f);
-            
+
             // 动画播放结束后，渐隐层并允许行为恢复
             state.Events(this).OnEnd = () =>
             {
+                if (_parryRecovered) return;
+                _parryRecovered = true;
                 _animancer.Layers[3].StartFade(0f, 0.25f);
                 _behaviorController?.ResumeBehavior();
+                // 取消超时协程
+                if (_parryRecoveryCoroutine != null)
+                {
+                    StopCoroutine(_parryRecoveryCoroutine);
+                    _parryRecoveryCoroutine = null;
+                }
             };
+
+            // 启动超时兜底协程
+            float timeoutDuration = (parriedAnimation.Clip != null ? parriedAnimation.Clip.length : 2f) + 1f;
+            _parryRecoveryCoroutine = StartCoroutine(ParryRecoveryTimeout(timeoutDuration));
         }
+    }
+
+    private IEnumerator ParryRecoveryTimeout(float timeout)
+    {
+        yield return new WaitForSeconds(timeout);
+
+        if (!_parryRecovered)
+        {
+            _parryRecovered = true;
+#if UNITY_EDITOR
+            Debug.LogWarning($"Parryable: OnEnd 未触发，超时 ({timeout:F1}s) 强制恢复 ResumeBehavior! ({gameObject.name})", this);
+#endif
+            if (_animancer != null)
+                _animancer.Layers[3].StartFade(0f, 0.25f);
+            _behaviorController?.ResumeBehavior();
+        }
+        _parryRecoveryCoroutine = null;
     }
 }

@@ -45,6 +45,21 @@ public class HitReactionController : MonoBehaviour
         _hitLayer.SetWeight(0);
     }
 
+    /// <summary>
+    /// 强制重置受击状态，停止 HitFlow 协程并清理所有标记。
+    /// 由 HurtBoxManager.ForceResetHitState() 调用。
+    /// </summary>
+    public void ForceReset()
+    {
+        if (_hitFlowCoroutine != null)
+        {
+            StopCoroutine(_hitFlowCoroutine);
+            _hitFlowCoroutine = null;
+        }
+        isHitting = false;
+        _hitLayer.StartFade(0f, 0.25f);
+    }
+
     public void PlayHit(AttackEvent hit)
     {
         HitStrength incomingStrength = EvaluateStrength(hit);
@@ -53,7 +68,16 @@ public class HitReactionController : MonoBehaviour
             return;
 
         if (_hitFlowCoroutine != null)
+        {
+            // 在停止协程之前手动清理状态，因为 StopCoroutine 不会执行协程的后续代码
+            isHitting = false;
+            _hitLayer.StartFade(0f, 0.25f);
+#if UNITY_EDITOR
+            Debug.Log($"HitReactionController: 中断当前 HitFlow ({_currentHitStrength}) -> 新受击 ({incomingStrength})", this);
+#endif
             StopCoroutine(_hitFlowCoroutine);
+            _hitFlowCoroutine = null;
+        }
 
         _hitFlowCoroutine = StartCoroutine(HitFlow(hit));
     }
@@ -62,6 +86,19 @@ public class HitReactionController : MonoBehaviour
     {
         _currentHitStrength = EvaluateStrength(hit);
         isHitting = true;
+
+        // 受击时立即中断当前正在播放的技能（翻滚、攻击等），确保技能状态干净终止
+        var playerSkill = GetComponent<PlayerSkillComponent>();
+        if (playerSkill != null)
+        {
+            playerSkill.StopAndCleanup(true, false);
+        }
+        else
+        {
+            var enemySkill = GetComponent<EnemySkillComponent>();
+            if (enemySkill != null)
+                enemySkill.StopAndCleanup();
+        }
 
         float duration = GetHitDuration(_currentHitStrength);
 
@@ -90,12 +127,35 @@ public class HitReactionController : MonoBehaviour
 
         _hitLayer.StartFade(0f, 0.25f);
         isHitting = false;
+        // Ensure any behavior locks are released (safety): resume if a behavior controller exists
+        var behaviorController = GetComponent<Parryable.IBehaviorController>();
+        if (behaviorController != null)
+        {
+            try { behaviorController.ResumeBehavior(); }
+            catch (System.Exception e) { Debug.LogWarning($"HitReactionController: ResumeBehavior threw: {e}"); }
+        }
+        // Restore player to appropriate state after hit recovery
+        var playerModel = GetComponent<PlayerModel>();
+        if (playerModel != null)
+        {
+            var ts = playerModel.ts;
+            if (ts != null && ts.HasTarget)
+                playerModel.ChangePlayerState(PlayerState.aim);
+            else if (PlayerController.Instance != null && PlayerController.Instance.isGround)
+                playerModel.ChangePlayerState(PlayerState.ground);
+            else
+                playerModel.ChangePlayerState(PlayerState.sky);
+        }
         _hitFlowCoroutine = null;
     }
 
     private IEnumerator ApplyKnockbackForce(AttackEvent hit)
     {
-        if (hit.attackData?.forceType < AttackForceType.Medium)
+        // Guard: require attackData and sufficient force
+        if (hit?.attackData == null || hit.attackData.forceType < AttackForceType.Medium)
+            yield break;
+
+        if (cc == null)
             yield break;
 
         float timer = 0f;
@@ -106,8 +166,9 @@ public class HitReactionController : MonoBehaviour
             dir.y = 0;
             dir.Normalize();
 
-            float curve = knockbackCurve.Evaluate(timer / knockbackDuration);
-            Vector3 move = -dir * hit.attackData.hitForce * curve * Time.deltaTime;
+            float curve = (knockbackCurve != null) ? knockbackCurve.Evaluate(timer / knockbackDuration) : 1f;
+            float force = hit.attackData != null ? hit.attackData.hitForce : 0f;
+            Vector3 move = -dir * force * curve * Time.deltaTime;
             cc.Move(move);
 
             timer += Time.deltaTime;

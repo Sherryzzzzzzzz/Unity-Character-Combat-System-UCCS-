@@ -11,13 +11,19 @@ public enum PlayerAnimationState
 
 public enum PlayerState
 {
-    ground,sky,attack,aim
+    ground,sky,attack,aim,guard
 }
 
 public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorController
 {
     private StateMachine animationStateMachine;
     private StateMachine playerStateMachine;
+
+#if UNITY_EDITOR
+    public StateMachine DebugPlayerStateMachine => playerStateMachine;
+    public StateMachine DebugAnimationStateMachine => animationStateMachine;
+#endif
+
     public PlayerAnimationState _PlayerAnimationState{ get; private set; }
     public PlayerState _PlayerState{ get; private set; }
     [SerializeField] 
@@ -41,6 +47,11 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public SkillTimelineAsset dodgeB;
     public SkillTimelineAsset dodgeR;
     public SkillTimelineAsset dodgeL;
+
+    [Header("Guard")]
+    public ClipTransition guardAnimation;
+    public ClipTransition guardEndAnimation;
+    public GameplayEffect guardEffect;
     
     public SkillTimelineAsset currentSkill;
     public bool isAttacking = false;
@@ -72,6 +83,9 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public bool isDefending = false;
     public bool isAiming = false;
 
+    [SerializeField] private float maxHitStateDuration = 5f;
+    private float _hitStateTimer;
+
     private void Awake()
     {
         animator = GetComponent<Animator>();
@@ -94,11 +108,62 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     
     void Update()
     {
-        if (_behaviorDisabled) return;
-        
+        // Always sample sensors so we can decide whether to resume behavior
         DetectNearestEnemy();
-        isAttacking = pac.isPlaying;
-        isHitting = GetComponent<HurtBoxManager>().isHitting;
+        isAttacking = (pac != null && pac.isPlaying) || _PlayerState == PlayerState.guard;
+        var hbm = GetComponent<HurtBoxManager>();
+        isHitting = (hbm != null) && hbm.isHitting;
+
+        // 受击超时安全网
+        if (isHitting)
+        {
+            _hitStateTimer += Time.deltaTime;
+            if (_hitStateTimer >= maxHitStateDuration)
+            {
+#if UNITY_EDITOR
+                Debug.LogWarning($"PlayerModel: isHitting 超时 ({_hitStateTimer:F1}s >= {maxHitStateDuration}s)，强制恢复!", this);
+#endif
+                if (hbm != null)
+                    hbm.ForceResetHitState();
+                isHitting = false;
+                _behaviorDisabled = false;
+                _hitStateTimer = 0f;
+            }
+        }
+        else
+        {
+            _hitStateTimer = 0f;
+        }
+
+        // If behavior was previously disabled, only prevent other updates while still in hit state.
+        if (_behaviorDisabled)
+        {
+            if (!isHitting)
+            {
+                // Hit reaction finished but behavior was left disabled: resume now
+                _behaviorDisabled = false;
+                Debug.Log("PlayerModel: behavior resumed automatically after hit finished.", this);
+
+                // Restore to correct state based on current context
+                if (_PlayerState != PlayerState.guard)
+                {
+                    if (ts != null && ts.HasTarget)
+                        ChangePlayerState(PlayerState.aim);
+                    else if (PlayerController.Instance.isGround)
+                        ChangePlayerState(PlayerState.ground);
+                    else
+                        ChangePlayerState(PlayerState.sky);
+                }
+            }
+            else
+            {
+                // Still in hit state: keep behaviors disabled
+                return;
+            }
+        }
+
+        // Normal update work continues below
+        // (previously nothing else was here, but leaving placeholder for clarity)
     }
 
     public void ChangeAnimationState(PlayerAnimationState animationState)
@@ -138,6 +203,9 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
                 break;
             case PlayerState.aim:
                 playerStateMachine.EnterState<PlayerGroundAimState>(parameter);
+                break;
+            case PlayerState.guard:
+                playerStateMachine.EnterState<PlayerGuardState>(parameter);
                 break;
         }
         _PlayerState = newState;

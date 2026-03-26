@@ -17,6 +17,12 @@ public class BuffEvent : TimelineEventBase, ITimelineEventRuntime
     [Tooltip("要施加或移除的 Buff 模板")]
     public BuffSO buffData; // 引用我们之前创建的 BuffSO
 
+    [Header("GAS 模式")]
+    [Tooltip("启用后使用 GameplayEffect 替代旧 BuffSO 路径")]
+    public bool useGameplayEffect = false;
+    [Tooltip("GAS 模式下使用的 GameplayEffect")]
+    public GameplayEffect gasEffect;
+
     [Header("目标与操作")]
     [Tooltip("将 Buff 施加给谁")]
     public TargetType target = TargetType.Self;
@@ -77,8 +83,20 @@ public class BuffEvent : TimelineEventBase, ITimelineEventRuntime
     /// </summary>
     private void Execute(ActionType? overrideAction = null)
     {
-        if (buffData == null || _owner == null) return;
-        
+        if (_owner == null) return;
+
+        // GAS 模式
+        if (useGameplayEffect)
+        {
+            if (gasEffect == null) return;
+            ActionType finalAction = overrideAction ?? this.action;
+            ExecuteGAS(finalAction);
+            return;
+        }
+
+        // 旧 BuffSO 模式
+        if (buffData == null) return;
+
         // --- 1. 确定目标 ---
         GameObject targetObject = null;
         switch (target)
@@ -87,7 +105,6 @@ public class BuffEvent : TimelineEventBase, ITimelineEventRuntime
                 targetObject = _owner;
                 break;
             case TargetType.NearestEnemy:
-                // 假设 PlayerModel 有查找最近敌人的功能
                 if (_playerModel != null && _playerModel.nearestEnemy != null)
                 {
                     targetObject = _playerModel.nearestEnemy.gameObject;
@@ -96,7 +113,7 @@ public class BuffEvent : TimelineEventBase, ITimelineEventRuntime
         }
 
         if (targetObject == null) return;
-        
+
         // --- 2. 获取目标的 TagComponent ---
         var targetTagComponent = targetObject.GetComponent<TagComponent>();
         if (targetTagComponent == null)
@@ -106,21 +123,46 @@ public class BuffEvent : TimelineEventBase, ITimelineEventRuntime
         }
 
         // --- 3. 执行操作 ---
-        ActionType finalAction = overrideAction ?? this.action;
+        ActionType finalAction2 = overrideAction ?? this.action;
 
-        switch (finalAction)
+        switch (finalAction2)
         {
             case ActionType.Apply:
-                // 调用 TagComponent 的 ApplyBuff 方法
                 targetTagComponent.ApplyBuff(buffData, _owner);
-                Debug.Log($"Applied buff '{buffData.name}' to '{targetObject.name}'");
                 break;
             case ActionType.Remove:
-                // 调用 TagComponent 的 RemoveBuff 方法
                 targetTagComponent.RemoveBuff(buffData);
-                Debug.Log($"Removed buff '{buffData.name}' from '{targetObject.name}'");
                 break;
         }
+    }
+
+    private void ExecuteGAS(ActionType finalAction)
+    {
+        GameObject targetObject = null;
+        switch (target)
+        {
+            case TargetType.Self:
+                targetObject = _owner;
+                break;
+            case TargetType.NearestEnemy:
+                if (_playerModel != null && _playerModel.nearestEnemy != null)
+                    targetObject = _playerModel.nearestEnemy.gameObject;
+                break;
+        }
+
+        if (targetObject == null) return;
+
+        var ownerASC = _owner.GetComponent<AbilitySystemComponent>();
+        var targetASC = targetObject.GetComponent<AbilitySystemComponent>();
+
+        if (ownerASC == null || targetASC == null)
+        {
+            Debug.LogWarning("BuffEvent GAS 模式: 缺少 AbilitySystemComponent");
+            return;
+        }
+
+        if (finalAction == ActionType.Apply)
+            targetASC.ApplyGameplayEffect(gasEffect, ownerASC);
     }
     
     public override TimelineEventBase Clone()
@@ -131,6 +173,8 @@ public class BuffEvent : TimelineEventBase, ITimelineEventRuntime
         newEvent.buffData = buffData;
         newEvent.target = target;
         newEvent.action = action;
+        newEvent.useGameplayEffect = useGameplayEffect;
+        newEvent.gasEffect = gasEffect;
         return newEvent;
     }
 }

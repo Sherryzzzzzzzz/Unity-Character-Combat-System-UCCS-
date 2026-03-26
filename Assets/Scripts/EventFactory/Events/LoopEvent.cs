@@ -9,7 +9,6 @@ public enum ConditionType
     InputIsPressed,
     InputWasReleased,
     HasInputTag,
-    // 你可以继续添加更多...
 }
 
 public enum BranchActionType

@@ -13,7 +13,11 @@ public enum TimelineEventType
     Sound,
     Buff,
     Loop,
-    Cancel
+    Cancel,
+    GASEffect,
+    TargetSearch,
+    Cue,
+    CooldownTrigger
 }
 
 [Serializable]

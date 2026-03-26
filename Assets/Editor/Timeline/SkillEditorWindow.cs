@@ -20,6 +20,10 @@ public static class TimelineEventFactoryBootstrap
         EventFactoryRegistry.Register(new BuffEventFactory());
         EventFactoryRegistry.Register(new LoopEventFactory());
         EventFactoryRegistry.Register(new CancelEventFactory());
+        EventFactoryRegistry.Register(new GameplayEffectEventFactory());
+        EventFactoryRegistry.Register(new TargetSearchEventFactory());
+        EventFactoryRegistry.Register(new CueEventFactory());
+        EventFactoryRegistry.Register(new CooldownEventFactory());
     }
 }
 #endregion
@@ -57,23 +61,31 @@ public class SkillEditorTimelineWindow : EditorWindow
     private TwoPaneSplitView _splitView;
     private VisualElement _trackHeaders, _timelineContent, _ruler, _tracksRoot, _playhead;
     private VisualElement _eventInspector;
+    private VisualElement _inspectorContent;
     private ScrollView _trackContentScrollView;
     private Label _frameLabel;
     private AnimationClip _defaultPoseClip;
     
     private TimelineEventBase _selectedEvent;
     private VisualElement _selectedEventClip;
-    private HashSet<string> _activeHitboxes = new HashSet<string>();
-    private List<AttackEvent> _activeAttackEvents = new List<AttackEvent>();
+    private List<TimelineEventBase> _selectedEvents = new List<TimelineEventBase>();
+    private List<TimelineEventBase> _clipboard = new List<TimelineEventBase>();
 
     public int GetTotalFrames() => _totalFrames;
     public bool HasClip() => _clip != null;
+
+    public void RecordUndoForDrag(string description)
+    {
+        if (_asset != null) Undo.RecordObject(_asset, description);
+    }
     
     //运行时动态查看
     private bool _isInDebugMode = false;
     private SkillTimelineAsset _lastDebugAsset = null;
     
     private AudioSource _previewAudioSource;
+
+    private SkillEditorSceneOverlay _sceneOverlay = new SkillEditorSceneOverlay();
     
     public void CreateGUI()
     {
@@ -188,6 +200,13 @@ public class SkillEditorTimelineWindow : EditorWindow
 
         _toolbar.Add(new ToolbarSpacer { flex = true });
 
+        var sceneOverlayToggle = new ToolbarToggle { text = "场景预览", value = true, tooltip = "在SceneView中显示事件范围可视化" };
+        sceneOverlayToggle.RegisterValueChangedCallback(e => _sceneOverlay.Enabled = e.newValue);
+        _toolbar.Add(sceneOverlayToggle);
+
+        _toolbar.Add(new ToolbarButton(SaveSelectionAsTemplate) { text = "保存模板", tooltip = "将选中事件保存为可复用模板" });
+        _toolbar.Add(new ToolbarButton(ShowLoadTemplateMenu) { text = "加载模板", tooltip = "从模板加载事件到当前轨道" });
+
         var typeField = new EnumField(TimelineEventType.Attack) { style = { width = 100 }};
         var addTrackBtn = new Button(() => AddTrack((TimelineEventType)typeField.value, $"新轨道 ({typeField.value})")) { text = "添加轨道" };
         
@@ -217,6 +236,7 @@ public class SkillEditorTimelineWindow : EditorWindow
         _trackContentScrollView = new ScrollView(ScrollViewMode.Vertical) { style = { flexGrow = 1 } };
         _trackContentScrollView.verticalScroller.valueChanged += v => _trackHeaders.style.top = -v;
         _tracksRoot = new VisualElement { name = "tracks-root", style = { position = Position.Relative }};
+        _tracksRoot.AddManipulator(new BoxSelectionManipulator(this));
         _trackContentScrollView.Add(_tracksRoot);
 
         _timelineContent.Add(_ruler);
@@ -230,10 +250,15 @@ public class SkillEditorTimelineWindow : EditorWindow
         _eventInspector.style.borderLeftWidth = 1;
         _eventInspector.style.borderLeftColor = new Color(0.1f, 0.1f, 0.1f);
         _eventInspector.style.backgroundColor = new Color(0.21f, 0.21f, 0.21f);
-        _eventInspector.style.paddingTop = 8;
-        _eventInspector.style.paddingBottom = 8;
-        _eventInspector.style.paddingLeft = 8;
-        _eventInspector.style.paddingRight = 8;
+
+        var inspectorScrollView = new ScrollView(ScrollViewMode.Vertical);
+        inspectorScrollView.style.flexGrow = 1;
+        inspectorScrollView.style.paddingTop = 8;
+        inspectorScrollView.style.paddingBottom = 8;
+        inspectorScrollView.style.paddingLeft = 8;
+        inspectorScrollView.style.paddingRight = 8;
+        _eventInspector.Add(inspectorScrollView);
+        _inspectorContent = inspectorScrollView;
 
         mainContainer.Add(_splitView);
         mainContainer.Add(_eventInspector);
@@ -541,13 +566,59 @@ public class SkillEditorTimelineWindow : EditorWindow
         return clipContainer;
     }
     
-    public void SelectEvent(TimelineEventBase evt, VisualElement clipElement)
+    public void SelectEvent(TimelineEventBase evt, VisualElement clipElement, bool additive = false)
     {
         // 【兼容性修复】使用 Blur() 方法主动让当前焦点元素失焦
         if (_root.focusController != null && _root.focusController.focusedElement != null)
         {
             (_root.focusController.focusedElement as VisualElement)?.Blur();
         }
+
+        if (additive && evt != null)
+        {
+            // Shift+Click: toggle in multi-select list
+            if (_selectedEvents.Contains(evt))
+                _selectedEvents.Remove(evt);
+            else
+                _selectedEvents.Add(evt);
+
+            _selectedEvent = _selectedEvents.Count > 0 ? _selectedEvents[_selectedEvents.Count - 1] : null;
+
+            // Update visual selection on all tracks
+            foreach (var timeline in _timelines)
+            {
+                if (timeline.trackRow == null) continue;
+                foreach (var child in timeline.trackRow.Children())
+                {
+                    if (child.userData is TimelineEventBase childEvt)
+                    {
+                        if (_selectedEvents.Contains(childEvt))
+                            child.AddToClassList("event-clip--selected");
+                        else
+                            child.RemoveFromClassList("event-clip--selected");
+                    }
+                }
+            }
+
+            if (_selectedEvents.Count > 1)
+            {
+                ShowMultiSelectionInspector();
+            }
+            else if (_selectedEvents.Count == 1)
+            {
+                OpenEventEditor(_selectedEvents[0]);
+            }
+            else
+            {
+                OpenEventEditor(null);
+            }
+
+            _timelineContent?.schedule.Execute(() => _timelineContent.Focus());
+            return;
+        }
+
+        // Single select — clear multi-select
+        _selectedEvents.Clear();
 
         if (_selectedEvent == evt)
         {
@@ -559,6 +630,7 @@ public class SkillEditorTimelineWindow : EditorWindow
         _selectedEvent = evt;
 
         if (evt != null) {
+            _selectedEvents.Add(evt);
             _selectedEventClip = clipElement ?? _timelines.SelectMany(t => t.trackRow.Children())
                 .FirstOrDefault(c => c.userData == evt);
             _timelineContent?.schedule.Execute(() => _timelineContent.Focus());
@@ -569,24 +641,184 @@ public class SkillEditorTimelineWindow : EditorWindow
         _selectedEventClip?.AddToClassList("event-clip--selected");
         OpenEventEditor(evt);
     }
+
+    private void ShowMultiSelectionInspector()
+    {
+        if (_inspectorContent == null) return;
+        _inspectorContent.Clear();
+        _inspectorContent.userData = null;
+
+        _inspectorContent.Add(new Label($"已选中 {_selectedEvents.Count} 个事件")
+        {
+            style = { unityFontStyleAndWeight = FontStyle.Bold, marginBottom = 8 }
+        });
+
+        var deleteBtn = new Button(() => DeleteSelectedEvents()) { text = "批量删除选中事件" };
+        deleteBtn.style.backgroundColor = new Color(0.8f, 0.2f, 0.2f);
+        _inspectorContent.Add(deleteBtn);
+    }
+
+    private void DeleteSelectedEvents()
+    {
+        if (_selectedEvents.Count == 0) return;
+        if (_asset != null) Undo.RecordObject(_asset, "批量删除事件");
+
+        var affectedTracks = new HashSet<TimelineData>();
+        foreach (var evt in _selectedEvents)
+        {
+            var track = _timelines.FirstOrDefault(t => t.events.Contains(evt));
+            if (track != null)
+            {
+                track.events.Remove(evt);
+                affectedTracks.Add(track);
+            }
+        }
+        _selectedEvents.Clear();
+        _selectedEvent = null;
+        _selectedEventClip = null;
+        foreach (var track in affectedTracks) RefreshTrackContentUI(track);
+        OpenEventEditor(null);
+    }
+
+    public void BoxSelectEvents(Rect selectionRect, VisualElement relativeTo)
+    {
+        _selectedEvents.Clear();
+        _selectedEvent = null;
+
+        foreach (var timeline in _timelines)
+        {
+            if (timeline.trackRow == null) continue;
+            foreach (var child in timeline.trackRow.Children())
+            {
+                if (child.userData is TimelineEventBase evt)
+                {
+                    // Convert child bounds to relativeTo's local space
+                    var childWorldBound = child.worldBound;
+                    var relativeWorldBound = relativeTo.worldBound;
+                    Rect childLocalRect = new Rect(
+                        childWorldBound.x - relativeWorldBound.x,
+                        childWorldBound.y - relativeWorldBound.y,
+                        childWorldBound.width,
+                        childWorldBound.height
+                    );
+
+                    if (selectionRect.Overlaps(childLocalRect))
+                    {
+                        _selectedEvents.Add(evt);
+                        child.AddToClassList("event-clip--selected");
+                    }
+                    else
+                    {
+                        child.RemoveFromClassList("event-clip--selected");
+                    }
+                }
+            }
+        }
+
+        if (_selectedEvents.Count > 1)
+        {
+            _selectedEvent = _selectedEvents[_selectedEvents.Count - 1];
+            ShowMultiSelectionInspector();
+        }
+        else if (_selectedEvents.Count == 1)
+        {
+            _selectedEvent = _selectedEvents[0];
+            OpenEventEditor(_selectedEvent);
+        }
+        else
+        {
+            OpenEventEditor(null);
+        }
+    }
     #endregion
 
     #region 键盘控制
     private void OnKeyDown(KeyDownEvent evt)
     {
+        bool ctrl = evt.ctrlKey || evt.commandKey;
+        bool handled = false;
+
+        // Global shortcuts (work regardless of selection)
+        switch (evt.keyCode)
+        {
+            case KeyCode.Space:
+                if (_isPlaying) StopPlayback(); else StartPlayback();
+                handled = true;
+                break;
+
+            case KeyCode.S when ctrl:
+                SaveAsset();
+                handled = true;
+                break;
+
+            case KeyCode.Z when ctrl:
+                Undo.PerformUndo();
+                RebuildAllTracksUI();
+                handled = true;
+                break;
+
+            case KeyCode.Y when ctrl:
+                Undo.PerformRedo();
+                RebuildAllTracksUI();
+                handled = true;
+                break;
+
+            case KeyCode.C when ctrl:
+                CopySelectedEvents();
+                handled = true;
+                break;
+
+            case KeyCode.V when ctrl:
+                PasteEvents();
+                handled = true;
+                break;
+        }
+
+        if (handled)
+        {
+            evt.StopPropagation();
+            evt.PreventDefault();
+            return;
+        }
+
+        // Selection-dependent shortcuts
+        if (_selectedEvent == null && _selectedEvents.Count == 0) return;
+
+        // Delete works for both single and multi-select
+        if (evt.keyCode == KeyCode.Delete || evt.keyCode == KeyCode.Backspace)
+        {
+            if (_selectedEvents.Count > 1)
+            {
+                DeleteSelectedEvents();
+            }
+            else if (_selectedEvent != null)
+            {
+                var track = _timelines.FirstOrDefault(t => t.events.Contains(_selectedEvent));
+                if (track != null)
+                {
+                    if (_asset != null) Undo.RecordObject(_asset, "删除事件");
+                    track.events.Remove(_selectedEvent);
+                    SelectEvent(null, null);
+                    RefreshTrackContentUI(track);
+                }
+            }
+            evt.StopPropagation();
+            evt.PreventDefault();
+            return;
+        }
+
+        // Arrow keys: only for single selection
         if (_selectedEvent == null) return;
-        
-        // 【兼容性修复】移除对 leafTarget 和 TextInput 的依赖，因为我们通过主动失焦来避免冲突
-        
-        TimelineData track = _timelines.FirstOrDefault(t => t.events.Contains(_selectedEvent));
-        if (track == null) return;
-        
+        TimelineData selectedTrack = _timelines.FirstOrDefault(t => t.events.Contains(_selectedEvent));
+        if (selectedTrack == null) return;
+
         bool changed = false;
 
         switch (evt.keyCode)
         {
             case KeyCode.LeftArrow:
-                if (evt.ctrlKey || evt.commandKey)
+                if (_asset != null) Undo.RecordObject(_asset, "移动事件帧");
+                if (ctrl)
                 {
                     _selectedEvent.StartFrame = Mathf.Max(0, _selectedEvent.StartFrame - 1);
                 }
@@ -602,9 +834,10 @@ public class SkillEditorTimelineWindow : EditorWindow
                 }
                 changed = true;
                 break;
-            
+
             case KeyCode.RightArrow:
-                if (evt.ctrlKey || evt.commandKey)
+                if (_asset != null) Undo.RecordObject(_asset, "移动事件帧");
+                if (ctrl)
                 {
                     _selectedEvent.StartFrame = Mathf.Min(_selectedEvent.EndFrame - 1, _selectedEvent.StartFrame + 1);
                 }
@@ -620,23 +853,66 @@ public class SkillEditorTimelineWindow : EditorWindow
                 }
                 changed = true;
                 break;
-            
-            case KeyCode.Delete:
-            case KeyCode.Backspace:
-                track.events.Remove(_selectedEvent);
-                SelectEvent(null, null);
-                RefreshTrackContentUI(track);
-                changed = true;
-                break;
         }
-        
+
         if (changed)
         {
-            RefreshTrackContentUI(track);
+            RefreshTrackContentUI(selectedTrack);
             OpenEventEditor(_selectedEvent);
             evt.StopPropagation();
             evt.PreventDefault();
         }
+    }
+
+    private void CopySelectedEvents()
+    {
+        _clipboard.Clear();
+        var eventsToCopy = _selectedEvents.Count > 0 ? _selectedEvents :
+            (_selectedEvent != null ? new List<TimelineEventBase> { _selectedEvent } : new List<TimelineEventBase>());
+
+        foreach (var evt in eventsToCopy)
+        {
+            _clipboard.Add(evt.Clone());
+        }
+    }
+
+    private void PasteEvents()
+    {
+        if (_clipboard.Count == 0) return;
+
+        // Find the minimum start frame in clipboard to calculate offset
+        int minFrame = int.MaxValue;
+        foreach (var evt in _clipboard) minFrame = Mathf.Min(minFrame, evt.StartFrame);
+        int offset = _currentFrame - minFrame;
+
+        // Try to paste into the first selected track, or the first track
+        TimelineData targetTrack = null;
+        if (_selectedEvent != null)
+            targetTrack = _timelines.FirstOrDefault(t => t.events.Contains(_selectedEvent));
+        if (targetTrack == null && _timelines.Count > 0)
+            targetTrack = _timelines[0];
+        if (targetTrack == null) return;
+
+        if (_asset != null) Undo.RecordObject(_asset, "粘贴事件");
+
+        _selectedEvents.Clear();
+        foreach (var clipEvt in _clipboard)
+        {
+            var newEvt = clipEvt.Clone();
+            int duration = newEvt.EndFrame - newEvt.StartFrame;
+            newEvt.StartFrame = Mathf.Max(0, newEvt.StartFrame + offset);
+            newEvt.EndFrame = newEvt.StartFrame + duration;
+            targetTrack.AddEvent(newEvt);
+            _selectedEvents.Add(newEvt);
+        }
+
+        _selectedEvent = _selectedEvents.Count > 0 ? _selectedEvents[_selectedEvents.Count - 1] : null;
+        RefreshTrackContentUI(targetTrack);
+
+        if (_selectedEvents.Count > 1)
+            ShowMultiSelectionInspector();
+        else if (_selectedEvent != null)
+            OpenEventEditor(_selectedEvent);
     }
     #endregion
 
@@ -691,20 +967,20 @@ public class SkillEditorTimelineWindow : EditorWindow
     
     public void OpenEventEditor(TimelineEventBase evt)
     {
-        if (_eventInspector == null) return;
+        if (_inspectorContent == null) return;
 
-        if (_eventInspector.userData as TimelineEventBase == evt && evt != null)
+        if (_inspectorContent.userData as TimelineEventBase == evt && evt != null)
         {
-            _eventInspector.Q<IntegerField>("start-frame-field")?.SetValueWithoutNotify(evt.StartFrame);
-            _eventInspector.Q<IntegerField>("end-frame-field")?.SetValueWithoutNotify(evt.EndFrame);
+            _inspectorContent.Q<IntegerField>("start-frame-field")?.SetValueWithoutNotify(evt.StartFrame);
+            _inspectorContent.Q<IntegerField>("end-frame-field")?.SetValueWithoutNotify(evt.EndFrame);
             return;
         }
 
-        _eventInspector.Clear();
-        _eventInspector.userData = evt;
+        _inspectorContent.Clear();
+        _inspectorContent.userData = evt;
 
         if (evt == null) {
-            _eventInspector.Add(new Label("未选中任何事件。") { style = { unityTextAlign = TextAnchor.MiddleCenter, flexGrow = 1 }});
+            _inspectorContent.Add(new Label("未选中任何事件。") { style = { unityTextAlign = TextAnchor.MiddleCenter, flexGrow = 1 }});
             return;
         }
         try {
@@ -712,27 +988,73 @@ public class SkillEditorTimelineWindow : EditorWindow
             var inspector = factory.CreateInspector(evt);
             var track = _timelines.First(t => t.events.Contains(evt));
 
+            // --- 事件类型标题 ---
+            var header = new Label(evt.Type.ToString());
+            header.style.unityFontStyleAndWeight = FontStyle.Bold;
+            header.style.fontSize = 14;
+            header.style.marginBottom = 6;
+            _inspectorContent.Add(header);
+
+            // --- 帧区间 ---
             var startFrameField = new IntegerField("起始帧") { value = evt.StartFrame, name = "start-frame-field" };
+            startFrameField.style.marginBottom = 2;
             startFrameField.RegisterValueChangedCallback(changeEvt => {
+                if (_asset != null) Undo.RecordObject(_asset, "修改事件起始帧");
                 evt.StartFrame = Mathf.Clamp(changeEvt.newValue, 0, evt.EndFrame - 1);
                 RefreshTrackContentUI(track);
                 startFrameField.SetValueWithoutNotify(evt.StartFrame);
             });
 
             var endFrameField = new IntegerField("结束帧") { value = evt.EndFrame, name = "end-frame-field" };
+            endFrameField.style.marginBottom = 4;
             endFrameField.RegisterValueChangedCallback(changeEvt => {
+                if (_asset != null) Undo.RecordObject(_asset, "修改事件结束帧");
                 evt.EndFrame = Mathf.Clamp(changeEvt.newValue, evt.StartFrame + 1, GetTotalFrames());
                 RefreshTrackContentUI(track);
                 endFrameField.SetValueWithoutNotify(evt.EndFrame);
             });
-            _eventInspector.Add(startFrameField);
-            _eventInspector.Add(endFrameField);
-            _eventInspector.Add(new IMGUIContainer(() => EditorGUILayout.Space()));
-            _eventInspector.Add(inspector);
+            _inspectorContent.Add(startFrameField);
+            _inspectorContent.Add(endFrameField);
+
+            // --- 分隔线 ---
+            var separator = new VisualElement();
+            separator.style.height = 1;
+            separator.style.backgroundColor = new Color(0.3f, 0.3f, 0.3f);
+            separator.style.marginTop = 6;
+            separator.style.marginBottom = 6;
+            _inspectorContent.Add(separator);
+
+            // --- 属性标题 ---
+            var propsHeader = new Label("属性");
+            propsHeader.style.unityFontStyleAndWeight = FontStyle.Bold;
+            propsHeader.style.marginBottom = 4;
+            _inspectorContent.Add(propsHeader);
+
+            // --- 工厂 Inspector (加间距) ---
+            AddSpacingToChildren(inspector);
+            _inspectorContent.Add(inspector);
 
             inspector.RegisterCallback<ChangeEvent<object>>(e => RefreshTrackContentUI(track));
         }
-        catch (Exception ex) { Debug.LogError($"打开检视器时出错: {ex}"); _eventInspector.Add(new Label("检视器出错")); }
+        catch (Exception ex) { Debug.LogError($"打开检视器时出错: {ex}"); _inspectorContent.Add(new Label("检视器出错")); }
+    }
+
+    /// <summary>
+    /// 给 VisualElement 的直接子元素添加统一的垂直间距
+    /// </summary>
+    private void AddSpacingToChildren(VisualElement element)
+    {
+        element.RegisterCallback<GeometryChangedEvent>(evt =>
+        {
+            foreach (var child in element.Children())
+            {
+                // 跳过已有明确 marginBottom 的元素和 frame row（避免重复帧字段的间距）
+                if (child.resolvedStyle.marginBottom < 1f)
+                {
+                    child.style.marginBottom = 4;
+                }
+            }
+        });
     }
 
     private int ScreenPosToFrame(float screenX, VisualElement relativeTo = null)
@@ -766,18 +1088,7 @@ public class SkillEditorTimelineWindow : EditorWindow
 
     private Color GetColorByType(TimelineEventType type)
     {
-        switch (type)
-        {
-            case TimelineEventType.Attack: return new Color(0.85f, 0.35f, 0.35f);
-            case TimelineEventType.HitBox: return new Color(0.28f, 0.6f, 1f);
-            case TimelineEventType.Combo: return new Color(0.25f, 0.9f, 0.35f);
-            case TimelineEventType.Effect: return new Color(0.9f, 0.75f, 0.2f);
-            case TimelineEventType.Sound: return new Color(0.8f, 0.5f, 1f);
-            case TimelineEventType.Buff: return new Color(0.5f, 0.5f, 0.5f);
-            case TimelineEventType.Loop: return new Color(0.3f, 0.8f, 0.8f);
-            case TimelineEventType.Cancel: return new Color(0.85f, 0.85f, 0.8f);
-            default: return Color.gray;
-        }
+        return TimelineTrackRenderer.GetColorByType(type);
     }
     #endregion
     
@@ -851,20 +1162,16 @@ public class SkillEditorTimelineWindow : EditorWindow
     {
         if (_previewAudioSource == null) return;
 
-        // 遍历所有轨道和事件
         foreach (var timeline in _timelines)
         {
             foreach (var evt in timeline.events)
             {
-                // --- 处理音效事件 ---
                 if (evt is SoundEvent soundEvent)
                 {
-                    // 如果当前帧是音效的起始帧
                     if (frame == soundEvent.StartFrame && soundEvent.soundClip != null)
                     {
                         if (soundEvent.loop)
                         {
-                            // 如果是循环音效，则使用标准的 Play
                             _previewAudioSource.clip = soundEvent.soundClip;
                             _previewAudioSource.volume = soundEvent.volume;
                             _previewAudioSource.loop = true;
@@ -872,41 +1179,20 @@ public class SkillEditorTimelineWindow : EditorWindow
                         }
                         else
                         {
-                            // 如果是单次音效，使用 PlayOneShot，它不会打断当前正在播放的其他音效
                             _previewAudioSource.PlayOneShot(soundEvent.soundClip, soundEvent.volume);
                         }
                     }
-                    // 如果当前帧是循环音效的结束帧
                     else if (frame == soundEvent.EndFrame && soundEvent.loop)
                     {
-                        // 检查当前播放的片段是否就是这个循环音效，如果是，则停止它
                         if (_previewAudioSource.isPlaying && _previewAudioSource.clip == soundEvent.soundClip)
                         {
                             _previewAudioSource.Stop();
                         }
                     }
                 }
-                
-                // (未来可以在这里添加其他需要预览的事件，比如特效)
             }
         }
-        
-        // 【新增】处理HitBox，我们把 OnFrameChanged 的逻辑也移到这里，让事件处理更集中
-        _activeHitboxes.Clear();
-        foreach (var track in _timelines) {
-            foreach (var evt in track.events) {
-                // 注意这里的逻辑是“在...期间”，而不是“在...开始”
-                if (frame >= evt.StartFrame && frame < evt.EndFrame) {
-                    if (evt is AttackEvent atk)
-                    {
-                        if (!string.IsNullOrEmpty(atk.hitBoxName))
-                            _activeHitboxes.Add(atk.hitBoxName);
 
-                        _activeAttackEvents.Add(atk);
-                    }
-                }
-            }
-        }
         SceneView.RepaintAll();
     }
     
@@ -914,40 +1200,15 @@ public class SkillEditorTimelineWindow : EditorWindow
     #endregion
     
     #region 场景视图与辅助方法
-    private void OnSceneGUI(SceneView sceneView) 
+    private void OnSceneGUI(SceneView sceneView)
     {
-        if (_previewObj == null || _activeHitboxes.Count == 0) return;
-        
-        Matrix4x4 originalMatrix = Handles.matrix;
-        
-        foreach (var hitName in _activeHitboxes) {
-            var hitTransform = FindDeepChild(_previewObj.transform, hitName);
-            if (hitTransform == null) continue;
-            
-            var hitCollider = hitTransform.GetComponent<Collider>();
-            if (hitCollider == null) continue;
-
-            Handles.color = new Color(1f, 0.3f, 0.3f, 0.8f);
-            
-            Handles.matrix = hitTransform.localToWorldMatrix;
-            
-            if (hitCollider is BoxCollider box)
-            {
-                Handles.DrawWireCube(box.center, box.size);
-            }
-            else if (hitCollider is SphereCollider sphere)
-            {
-                Handles.DrawWireDisc(sphere.center, Vector3.up, sphere.radius);
-                Handles.DrawWireDisc(sphere.center, Vector3.right, sphere.radius);
-                Handles.DrawWireDisc(sphere.center, Vector3.forward, sphere.radius);
-            }
-        }
-        
-        Handles.matrix = originalMatrix;
-        DrawAttackShapes();
+        _sceneOverlay.PreviewObject = _previewObj;
+        _sceneOverlay.CurrentFrame = _currentFrame;
+        _sceneOverlay.Timelines = _timelines;
+        _sceneOverlay.OnSceneGUI(sceneView);
     }
-    
-    private Transform FindDeepChild(Transform parent, string name) 
+
+    private Transform FindDeepChild(Transform parent, string name)
     {
         var result = parent.Find(name);
         if (result != null) return result;
@@ -991,7 +1252,105 @@ public class SkillEditorTimelineWindow : EditorWindow
             }
         }
     }
-    
+
+    #region 事件模板
+    private void SaveSelectionAsTemplate()
+    {
+        var eventsToSave = _selectedEvents.Count > 0 ? _selectedEvents :
+            (_selectedEvent != null ? new List<TimelineEventBase> { _selectedEvent } : new List<TimelineEventBase>());
+
+        if (eventsToSave.Count == 0)
+        {
+            EditorUtility.DisplayDialog("保存模板", "请先选中要保存为模板的事件。", "确定");
+            return;
+        }
+
+        string path = EditorUtility.SaveFilePanelInProject("保存事件模板", "NewEventTemplate", "asset", "选择模板保存位置");
+        if (string.IsNullOrEmpty(path)) return;
+
+        var template = ScriptableObject.CreateInstance<EventTemplate>();
+        template.templateName = System.IO.Path.GetFileNameWithoutExtension(path);
+
+        // Deep copy events and normalize frame offsets
+        int minFrame = int.MaxValue;
+        foreach (var evt in eventsToSave)
+            minFrame = Mathf.Min(minFrame, evt.StartFrame);
+
+        foreach (var evt in eventsToSave)
+        {
+            var clone = evt.Clone();
+            int duration = clone.EndFrame - clone.StartFrame;
+            clone.StartFrame -= minFrame;
+            clone.EndFrame = clone.StartFrame + duration;
+            template.events.Add(clone);
+        }
+
+        AssetDatabase.CreateAsset(template, path);
+        AssetDatabase.SaveAssets();
+        Debug.Log($"事件模板已保存: {path} ({template.events.Count} 个事件)");
+    }
+
+    private void ShowLoadTemplateMenu()
+    {
+        var guids = AssetDatabase.FindAssets("t:EventTemplate");
+        if (guids.Length == 0)
+        {
+            EditorUtility.DisplayDialog("加载模板", "未找到任何事件模板。请先使用\"保存模板\"创建模板。", "确定");
+            return;
+        }
+
+        var menu = new GenericMenu();
+        foreach (var guid in guids)
+        {
+            string assetPath = AssetDatabase.GUIDToAssetPath(guid);
+            var template = AssetDatabase.LoadAssetAtPath<EventTemplate>(assetPath);
+            if (template == null) continue;
+
+            string label = !string.IsNullOrEmpty(template.templateName) ? template.templateName : template.name;
+            menu.AddItem(new GUIContent(label), false, () => LoadTemplate(template));
+        }
+        menu.ShowAsContext();
+    }
+
+    private void LoadTemplate(EventTemplate template)
+    {
+        if (template == null || template.events.Count == 0) return;
+
+        // Find target track
+        TimelineData targetTrack = null;
+        if (_selectedEvent != null)
+            targetTrack = _timelines.FirstOrDefault(t => t.events.Contains(_selectedEvent));
+        if (targetTrack == null && _timelines.Count > 0)
+            targetTrack = _timelines[0];
+        if (targetTrack == null)
+        {
+            EditorUtility.DisplayDialog("加载模板", "请先添加一个轨道。", "确定");
+            return;
+        }
+
+        if (_asset != null) Undo.RecordObject(_asset, "加载事件模板");
+
+        _selectedEvents.Clear();
+        foreach (var evt in template.events)
+        {
+            var clone = evt.Clone();
+            int duration = clone.EndFrame - clone.StartFrame;
+            clone.StartFrame += _currentFrame;
+            clone.EndFrame = clone.StartFrame + duration;
+            targetTrack.AddEvent(clone);
+            _selectedEvents.Add(clone);
+        }
+
+        _selectedEvent = _selectedEvents.Count > 0 ? _selectedEvents[_selectedEvents.Count - 1] : null;
+        RefreshTrackContentUI(targetTrack);
+
+        if (_selectedEvents.Count > 1)
+            ShowMultiSelectionInspector();
+        else if (_selectedEvent != null)
+            OpenEventEditor(_selectedEvent);
+    }
+    #endregion
+
     // 进入调试模式
     public void EnterDebugMode(SkillTimelineAsset asset)
     {
@@ -1031,99 +1390,6 @@ public class SkillEditorTimelineWindow : EditorWindow
         _eventInspector.SetEnabled(true);
         
         LoadAsset(null);
-    }
-    
-    private void DrawAttackShapes()
-    {
-        if (_previewObj == null) return;
-        if (_activeAttackEvents == null) return;
-
-        Transform t = _previewObj.transform;
-
-        foreach (var atk in _activeAttackEvents)
-        {
-            if (atk == null || atk.attackData == null)
-                continue;
-
-            var data = atk.attackData;
-
-            if (data.radius <= 0 && data.length <= 0)
-                continue;
-
-            Vector3 center;
-            Vector3 forward;
-
-            if (atk.useLocalOffset)
-            {
-                center = t.position + t.rotation * atk.localOffset;
-                forward = t.rotation * atk.localForward;
-            }
-            else
-            {
-                center = t.position;
-                forward = t.forward;
-            }
-
-            if (forward.sqrMagnitude < 0.0001f)
-                forward = Vector3.forward;
-
-            forward.Normalize();
-
-            Handles.color = new Color(1f, 0.2f, 0.2f, 0.7f);
-
-            switch (data.shape)
-            {
-                case AttackShape.Sphere:
-                    SafeDrawSphere(center, data.radius);
-                    break;
-
-                case AttackShape.Capsule:
-                    SafeDrawCapsule(center, forward, data.radius, data.length);
-                    break;
-
-                case AttackShape.Cone:
-                    SafeDrawCone(center, forward, data.angle, data.length);
-                    break;
-            }
-        }
-    }
-
-
-    private void SafeDrawSphere(Vector3 center, float radius)
-    {
-        Handles.DrawWireDisc(center, Vector3.up, radius);
-        Handles.DrawWireDisc(center, Vector3.right, radius);
-        Handles.DrawWireDisc(center, Vector3.forward, radius);
-    }
-
-    private void SafeDrawCapsule(Vector3 center, Vector3 forward, float radius, float length)
-    {
-        Vector3 end = center + forward * length;
-
-        Vector3 right = Vector3.Cross(forward, Vector3.up);
-        if (right.sqrMagnitude < 0.0001f)
-            right = Vector3.right;
-
-        right.Normalize();
-
-        Handles.DrawWireDisc(center, forward, radius);
-        Handles.DrawWireDisc(end, forward, radius);
-
-        Handles.DrawLine(center + right * radius, end + right * radius);
-        Handles.DrawLine(center - right * radius, end - right * radius);
-    }
-
-    private void SafeDrawCone(Vector3 center, Vector3 forward, float angle, float length)
-    {
-        float halfAngle = angle * 0.5f;
-
-        Vector3 left = Quaternion.AngleAxis(-halfAngle, Vector3.up) * forward;
-        Vector3 right = Quaternion.AngleAxis(halfAngle, Vector3.up) * forward;
-
-        Handles.DrawLine(center, center + left * length);
-        Handles.DrawLine(center, center + right * length);
-
-        Handles.DrawWireArc(center, Vector3.up, left, angle, length);
     }
 
 }

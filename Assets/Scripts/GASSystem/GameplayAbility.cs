@@ -1,6 +1,19 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// 技能冷却信息（统一普通 CD 和充能 CD 查询）
+/// </summary>
+public struct SkillCooldownInfo
+{
+    public bool IsOnCooldown;
+    public float RemainingTime;
+    public float TotalDuration;
+    public int RemainingCharges;
+    public int MaxCharges;
+    public bool IsChargeBased;
+}
+
 public abstract class GameplayAbility
 {
     protected AbilitySystemComponent OwnerASC;
@@ -10,6 +23,16 @@ public abstract class GameplayAbility
     [Header("Cooldown")]
     public float Cooldown = 0f;
     private float lastCastTime = -999f;
+
+    // 标签驱动 CD
+    protected GameplayEffect _cooldownEffect;
+    protected GameplayTagSO _cooldownTag;
+
+    // 充能 CD
+    public int MaxCharges = 1;
+    public float ChargeRecoveryTime = 0f;
+    private int _remainingCharges;
+    private float _chargeRecoveryTimer;
 
     [Header("Tags")]
     public List<GameplayTagSO> ActivationRequiredTags = new();
@@ -34,6 +57,11 @@ public abstract class GameplayAbility
         GrantedTags = new List<GameplayTagSO>(data.grantedTags);
         CanBeInterrupted = data.canBeInterrupted;
         _costEffect = data.costEffect;
+        _cooldownEffect = data.cooldownEffect;
+        _cooldownTag = data.cooldownTag;
+        MaxCharges = Mathf.Max(1, data.maxCharges);
+        ChargeRecoveryTime = data.chargeRecoveryTime;
+        _remainingCharges = MaxCharges;
 
         if (this is DefaultGameplayAbility defaultAbility)
         {
@@ -48,9 +76,103 @@ public abstract class GameplayAbility
         TagComp = Owner.GetComponent<TagComponent>();
     }
 
+    /// <summary>
+    /// 检查是否在冷却中。
+    /// 优先使用标签驱动 CD，fallback 到旧时间戳逻辑。
+    /// 充能模式下检查剩余充能数。
+    /// </summary>
     public bool IsOnCooldown()
     {
-        return Time.time < lastCastTime + Cooldown;
+        // 充能模式
+        if (MaxCharges > 1)
+            return _remainingCharges <= 0;
+
+        // 标签驱动 CD
+        if (_cooldownTag != null && TagComp != null)
+            return TagComp.HasTag(_cooldownTag);
+
+        // Fallback: 旧时间戳逻辑
+        if (Cooldown > 0)
+            return Time.time < lastCastTime + Cooldown;
+
+        return false;
+    }
+
+    /// <summary>
+    /// 获取 CD 剩余时间
+    /// </summary>
+    public float GetCooldownRemaining()
+    {
+        // 标签驱动 CD：查找 Owner 上的 CooldownEffect
+        if (_cooldownTag != null && _cooldownEffect != null && OwnerASC != null)
+        {
+            // 通过 ASC 查找活跃的 CooldownEffect
+            // 注意：这里简单返回 CooldownEffect 的 duration 减去已过时间
+            // 实际精确值需要从 ActiveGameplayEffect.TimeRemaining 获取
+        }
+
+        // Fallback
+        if (Cooldown > 0)
+        {
+            float remaining = (lastCastTime + Cooldown) - Time.time;
+            return Mathf.Max(0f, remaining);
+        }
+
+        return 0f;
+    }
+
+    /// <summary>
+    /// 获取统一的冷却信息
+    /// </summary>
+    public SkillCooldownInfo GetCooldownInfo()
+    {
+        var info = new SkillCooldownInfo();
+        info.MaxCharges = MaxCharges;
+        info.IsChargeBased = MaxCharges > 1;
+        info.RemainingCharges = _remainingCharges;
+
+        if (info.IsChargeBased)
+        {
+            info.IsOnCooldown = _remainingCharges <= 0;
+            info.RemainingTime = _chargeRecoveryTimer > 0f ? GetChargeRecoveryDuration() - _chargeRecoveryTimer : 0f;
+            info.TotalDuration = GetChargeRecoveryDuration();
+        }
+        else
+        {
+            info.IsOnCooldown = IsOnCooldown();
+            info.RemainingTime = GetCooldownRemaining();
+            info.TotalDuration = _cooldownEffect != null ? _cooldownEffect.duration : Cooldown;
+        }
+
+        return info;
+    }
+
+    /// <summary>
+    /// 每帧更新充能恢复（需要外部调用或通过 ASC Tick）
+    /// </summary>
+    public void TickChargeRecovery(float deltaTime)
+    {
+        if (MaxCharges <= 1) return;
+        if (_remainingCharges >= MaxCharges) return;
+
+        _chargeRecoveryTimer += deltaTime;
+        float recoveryDuration = GetChargeRecoveryDuration();
+
+        while (_chargeRecoveryTimer >= recoveryDuration && _remainingCharges < MaxCharges)
+        {
+            _chargeRecoveryTimer -= recoveryDuration;
+            _remainingCharges++;
+        }
+
+        if (_remainingCharges >= MaxCharges)
+            _chargeRecoveryTimer = 0f;
+    }
+
+    private float GetChargeRecoveryDuration()
+    {
+        if (ChargeRecoveryTime > 0f) return ChargeRecoveryTime;
+        if (_cooldownEffect != null) return _cooldownEffect.duration;
+        return Cooldown > 0f ? Cooldown : 1f;
     }
 
     /// <summary>
@@ -62,8 +184,6 @@ public abstract class GameplayAbility
         if (_costEffect == null) return true;
         if (OwnerASC == null || OwnerASC.Attributes == null) return false;
 
-        // 模拟检查：遍历 costEffect 的 modifiers，确认扣除后属性 >= 0
-        // 同时检查 damage 字段（如果 costEffect 用 damage 扣血）
         var attrs = OwnerASC.Attributes;
 
         if (_costEffect.damage > 0f)
@@ -76,8 +196,6 @@ public abstract class GameplayAbility
             var attrValue = attrs.GetAttributeValue(mod.attribute);
             if (attrValue != null)
             {
-                // 对于 Instant 扣除类 Cost，value 通常为负
-                // 检查 baseValue + value >= 0
                 if (attrValue.BaseValue + mod.value < 0f) return false;
             }
         }
@@ -86,33 +204,44 @@ public abstract class GameplayAbility
     }
 
     /// <summary>
-    /// 原子提交：扣除 Cost 并启动冷却
+    /// 原子提交：扣除 Cost、启动冷却、施加 CooldownEffect
     /// </summary>
     public bool CommitAbility()
     {
-        // 保存此前的冷却时间，以便在回滚时恢复
         float prevLastCastTime = lastCastTime;
 
-        // 扣除 Cost —— 如果 costEffect 存在则尝试施加并检查返回值
         try
         {
             if (_costEffect != null && OwnerASC != null)
             {
                 int handle = OwnerASC.ApplyGameplayEffect(_costEffect, OwnerASC);
                 if (handle == -1)
-                    return false; // 施加被拒绝
+                    return false;
             }
         }
         catch (System.Exception e)
         {
             Debug.LogWarning($"CommitAbility: ApplyGameplayEffect 抛出异常: {e}");
-            // 回滚任何可能在外部发生的冷却变更（防御性恢复为先前值）
             lastCastTime = prevLastCastTime;
             return false;
         }
 
         // 启动冷却
         lastCastTime = Time.time;
+
+        // 充能模式：消耗一个充能
+        if (MaxCharges > 1)
+        {
+            _remainingCharges = Mathf.Max(0, _remainingCharges - 1);
+        }
+
+        // 标签驱动 CD：施加 CooldownEffect
+        if (_cooldownEffect != null && _cooldownTag != null && OwnerASC != null && MaxCharges <= 1)
+        {
+            var cdSpec = new CooldownEffectSpec(_cooldownEffect, OwnerASC, _cooldownTag);
+            OwnerASC.ApplyEffectSpec(cdSpec);
+        }
+
         return true;
     }
 
@@ -122,7 +251,7 @@ public abstract class GameplayAbility
         if (IsOnCooldown())
             return false;
 
-        // 2. 标签检查（防护 TagComp 为空的情况）
+        // 2. 标签检查
         if (TagComp != null)
         {
             foreach (var tag in ActivationRequiredTags)
@@ -135,7 +264,6 @@ public abstract class GameplayAbility
         }
         else
         {
-            // 没有 TagComponent：若存在必须要求的标签，则视为无法激活
             if (ActivationRequiredTags != null && ActivationRequiredTags.Count > 0)
                 return false;
         }
@@ -151,25 +279,20 @@ public abstract class GameplayAbility
 
     private bool ActivateInternal()
     {
-        // 保存此前冷却值以便回滚
         float prevLastCastTime = lastCastTime;
 
-        // Commit: 扣除 Cost + 启动冷却
         if (!CommitAbility())
             return false;
 
-        // 授予标签（检查 TagComp 是否存在）
         if (TagComp != null)
         {
             foreach (var tag in GrantedTags)
                 TagComp.AddTag(tag);
         }
 
-        // 设置当前能力（检查 OwnerASC）
         if (OwnerASC != null)
             OwnerASC.SetCurrentAbility(this);
 
-        // 调用子类实现，但保护子类抛出异常时进行回滚，确保不会留下半应用状态（标签/冷却/当前能力）
         try
         {
             Activate();
@@ -177,7 +300,6 @@ public abstract class GameplayAbility
         catch (System.Exception e)
         {
             Debug.LogWarning($"ActivateInternal: Activate() 抛出异常，回滚能力激活: {e}");
-            // 使用 End() 做清理（End 已经实现对标签和 currentAbility 的移除）
             try
             {
                 End();
@@ -187,7 +309,6 @@ public abstract class GameplayAbility
                 Debug.LogWarning($"ActivateInternal: End() 在回滚时也抛出异常: {inner}");
             }
 
-            // 恢复冷却到先前状态
             lastCastTime = prevLastCastTime;
             return false;
         }

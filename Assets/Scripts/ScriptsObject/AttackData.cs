@@ -10,6 +10,10 @@ public class AttackData : ScriptableObject
     [Tooltip("Optional stagger effect to apply to the attacker when this attack is blocked")]
     public GameplayEffect staggerEffect;
 
+    [Header("Perfect Dodge")]
+    [Tooltip("Optional punishment effect to apply to the attacker when this attack hits a target that performed a perfect dodge")]
+    public GameplayEffect perfectDodgePunishEffect;
+
     [Header("Force Settings")]
     public float hitForce = 100f;
     public float hitFrame = 5f;

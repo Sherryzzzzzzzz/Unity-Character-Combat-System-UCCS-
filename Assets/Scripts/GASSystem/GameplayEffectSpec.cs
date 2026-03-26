@@ -2,8 +2,9 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// GameplayEffect 的运行时施加规格对象
-/// 持有效果数据引用、施加者属性快照和动态 Magnitude 配置
+/// GameplayEffect 的运行时施加规格对象。
+/// 持有效果数据引用、施加者属性快照和动态 Magnitude 配置。
+/// 子类可覆盖生命周期虚方法实现特定行为。
 /// </summary>
 public class GameplayEffectSpec
 {
@@ -60,7 +61,6 @@ public class GameplayEffectSpec
     /// </summary>
     public float GetMagnitude(int modifierIndex)
     {
-        // 1. Override 最高优先
         if (_magnitudeOverrides.TryGetValue(modifierIndex, out float overrideValue))
             return overrideValue;
 
@@ -74,24 +74,20 @@ public class GameplayEffectSpec
             switch (mod.magnitudeCalculation)
             {
                 case MagnitudeCalculation.Custom:
-                    // 2. Custom 接口计算
                     if (mod.customCalculation is IMagnitudeCalculation calc)
                         return SafeCalculateMagnitude(calc);
-                    return mod.value; // fallback 到 Static
+                    return mod.value;
 
                 case MagnitudeCalculation.AttributeBased:
-                    // 3. AttributeBased 从快照/目标捕获（Attacker snapshot preserved）
                     if (mod.captureSource == CaptureSource.Attacker)
                     {
                         if (CapturedAttackerAttributes.TryGetValue(mod.captureAttribute, out float capturedValue))
                             return capturedValue;
                     }
-                    // Target 来源在施加时从目标 ASC 实时获取（不走快照）
-                    return mod.value; // fallback
+                    return mod.value;
 
                 case MagnitudeCalculation.Static:
                 default:
-                    // 4. Static 使用固定值
                     return mod.value;
             }
         }
@@ -137,7 +133,35 @@ public class GameplayEffectSpec
                 return targetAttrValue.GetCurrentValue();
         }
 
-        // 其他情况委托给无目标版本
         return GetMagnitude(modifierIndex);
     }
+
+    // ========================
+    // 生命周期虚方法（子类可覆盖）
+    // ========================
+
+    /// <summary>
+    /// 效果首次施加时调用
+    /// </summary>
+    public virtual void OnInitialApply(AbilitySystemComponent targetASC) { }
+
+    /// <summary>
+    /// 周期 Tick 执行时调用
+    /// </summary>
+    public virtual void OnPeriodicExecute(AbilitySystemComponent targetASC) { }
+
+    /// <summary>
+    /// 效果正常到期完成时调用
+    /// </summary>
+    public virtual void OnComplete(AbilitySystemComponent targetASC) { }
+
+    /// <summary>
+    /// 效果刷新时调用（RefreshDuration 堆叠策略）
+    /// </summary>
+    public virtual void OnRefresh() { }
+
+    /// <summary>
+    /// 堆叠溢出时调用（达到 maxStacks 时再次施加）
+    /// </summary>
+    public virtual void OnOverflow(AbilitySystemComponent targetASC) { }
 }

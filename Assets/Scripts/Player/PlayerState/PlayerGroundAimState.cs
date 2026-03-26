@@ -38,10 +38,11 @@ public class PlayerGroundAimState : PlayerStateBase
     {
         base.Update();
         
-        // 2. 如果正在翻滚，直接 return，禁止移动和再次翻滚
+        // 2. 如果正在翻滚或受击，直接 return
         if (_isDodging) return;
-        
-        if (playerController.aim) 
+        if (playerModel.isHitting) return;
+
+        if (playerController.aim)
         {
             playerModel.ts.ToggleLockOn();
             return;

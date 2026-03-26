@@ -119,12 +119,16 @@ public class PlayerAttackState : PlayerStateBase
     {
         if (playerModel.isComboChain)
         {
-            playerModel.isComboChain = false; 
+            playerModel.isComboChain = false;
             if (playerModel.pac != null)
             {
                 playerModel.pac.OnSkillEnd -= OnSkillEnd;
                 playerModel.pac.OnSkillEnd += OnSkillEnd;
             }
+        }
+        else if (_currentAttackType == AttackType.defend && playerController.defendHeld)
+        {
+            playerModel.ChangePlayerState(PlayerState.guard);
         }
         else
         {

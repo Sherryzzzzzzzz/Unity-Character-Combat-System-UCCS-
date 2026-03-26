@@ -28,6 +28,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     public bool lightAttack{ get;private set; }
     public bool heavyAttack{ get;private set; }
     public bool defend{ get;private set; }
+    public bool defendHeld{ get;private set; }
     public bool dodge { get;private set; }
     public bool aim { get;private set; }
     #endregion
@@ -35,6 +36,8 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     private TagComponent tagComponent;
     [Header("Input Actions")]
     public List<CustomInputAction> inputActions;
+    public GameplayAbilitySO dodgeAbilitySO;
+    private AbilitySystemComponent asc;
     
     private InputActionWatcher _inputWatcher;
     public InputActionReference dodgeRunActionRef;
@@ -43,29 +46,50 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     private void Awake()
     {
         _inputWatcher = GetComponent<InputActionWatcher>();
-        var dodgeRunWatcher = _inputWatcher.GetWatchedAction(dodgeRunActionRef);
-        if (dodgeRunWatcher != null)
+        if (_inputWatcher != null)
         {
-            // 为查找到的 WatchedAction 添加监听器
-            dodgeRunWatcher.onShortPress.AddListener(() => dodge = true);
-            dodgeRunWatcher.onLongPressStart.AddListener(() => running = true);
-            dodgeRunWatcher.onLongPressEnd.AddListener(() => running = false);
+            var dodgeRunWatcher = _inputWatcher.GetWatchedAction(dodgeRunActionRef);
+            if (dodgeRunWatcher != null)
+            {
+                // 为查找到的 WatchedAction 添加监听器
+                dodgeRunWatcher.onShortPress.AddListener(() => dodge = true);
+                dodgeRunWatcher.onLongPressStart.AddListener(() => running = true);
+                dodgeRunWatcher.onLongPressEnd.AddListener(() => running = false);
+            }
+            var attackWatcher = _inputWatcher.GetWatchedAction(attackActionRef);
+            if (attackWatcher != null)
+            {
+                attackWatcher.onShortPress.AddListener(() => lightAttack = true);
+                attackWatcher.onLongPressStart.AddListener(() => heavyAttack = true);
+            }
         }
-        var attackWatcher = _inputWatcher.GetWatchedAction(attackActionRef);
-        if (attackWatcher != null)
+        else
         {
-            attackWatcher.onShortPress.AddListener(() => lightAttack = true);
-            attackWatcher.onLongPressStart.AddListener(() => heavyAttack = true);
+            Debug.LogWarning("PlayerController: InputActionWatcher component not found on GameObject");
         }
-        tagComponent = playerModel.tagComponent;
+
+        if (playerModel != null)
+        {
+            tagComponent = playerModel.tagComponent;
+            asc = playerModel.GetComponent<AbilitySystemComponent>();
+        }
+        else
+        {
+            Debug.LogWarning("PlayerController: playerModel is not assigned");
+        }
+
         input = new PlayerInputAction();
-        cameraTransform = Camera.main.transform;
+        cameraTransform = (Camera.main != null) ? Camera.main.transform : null;
+        if (cameraTransform == null)
+            Debug.LogWarning("PlayerController: Main Camera not found; camera-dependent movement will be disabled");
+
         Cursor.lockState = CursorLockMode.Locked;
         aim = false;
-        
+
         foreach (var action in inputActions)
         {
-            action.Initialize(tagComponent);
+            if (action != null)
+                action.Initialize(tagComponent);
         }
     }
 
@@ -141,7 +165,31 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         movement = input.Simple.Move.ReadValue<Vector2>();
         jump = input.Simple.Jump.WasCompletedThisFrame();
         defend = input.Simple.Parry.WasPressedThisFrame();
+        defendHeld = input.Simple.Parry.IsPressed();
         aim = input.Simple.Aim.WasPressedThisFrame();
+
+        // Dodge input: attempt perfect dodge if player pressed dodge
+        if (dodge)
+        {
+            // Prefer activating configured GameplayAbilitySO via ASC if available
+            if (asc != null && dodgeAbilitySO != null)
+            {
+                asc.ActivateAbility(dodgeAbilitySO.abilityName);
+            }
+            else
+            {
+                var dodgeAbility = playerModel.GetComponent<DodgeAbility>();
+                if (dodgeAbility != null)
+                {
+                    bool perfect = dodgeAbility.AttemptDodge();
+                    if (perfect)
+                    {
+                        Debug.Log($"{gameObject.name}: Perfect dodge detected by PlayerController");
+                        // Optionally trigger perfect-dodge visuals/animation here if desired
+                    }
+                }
+            }
+        }
         #endregion
         
         #region 位置改变
@@ -149,7 +197,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         if (!playerModel.isAttacking)
         {
             // 摄像机
-            Transform cam = Camera.main.transform;
+            Transform cam = (Camera.main != null) ? Camera.main.transform : null; if (cam == null) return;
 
             // 摄像机的前和右方向（投影到水平面）
             Vector3 camForward = Vector3.Scale(cam.forward, new Vector3(1, 0, 1)).normalized;
@@ -176,7 +224,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         #endregion
         
         #region 控制相机
-        if(!playerModel.isAiming||!playerModel.isAttacking)
+        if(!playerModel.isAiming&&!playerModel.isAttacking)
         {
             //相机的方向向量
             Vector3 cameraForward = new Vector3(cameraTransform.forward.x, 0, cameraTransform.forward.z).normalized;
@@ -186,7 +234,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         }
         #endregion
         
-        playerModel.isDefending = defend;
+        Debug.Log(isGround);
     }
     
     private void LateUpdate()
