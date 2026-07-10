@@ -20,6 +20,30 @@ public abstract class GameplayAbility
     protected GameObject Owner;
     protected TagComponent TagComp;
 
+    // ===== 能力元数据（对应 UE5） =====
+    /// <summary>实例化策略</summary>
+    public InstancingPolicy AbilityInstancingPolicy = InstancingPolicy.InstancedPerExecution;
+    /// <summary>网络执行策略（单机默认LocalOnly）</summary>
+    public NetExecutionPolicy AbilityNetExecutionPolicy = NetExecutionPolicy.LocalOnly;
+    /// <summary>此能力的AssetTag（用于按Tag查找/取消/阻塞）</summary>
+    public List<GameplayTagSO> AbilityTags = new();
+    /// <summary>激活时取消拥有这些Tag的其他能力</summary>
+    public List<GameplayTagSO> CancelAbilitiesWithTag = new();
+    /// <summary>激活期间阻塞拥有这些Tag的能力</summary>
+    public List<GameplayTagSO> BlockAbilitiesWithTag = new();
+    /// <summary>激活期间授予Owner的Tag</summary>
+    public List<GameplayTagSO> ActivationOwnedTags = new();
+    /// <summary>来源对象</summary>
+    public object SourceObject;
+    /// <summary>能力等级</summary>
+    public int AbilityLevel = 1;
+    /// <summary>所属的Spec</summary>
+    public GameplayAbilitySpec Spec;
+
+    // ===== 当前激活信息 =====
+    protected int CurrentSpecHandle;
+    protected GameplayAbilityActorInfo CurrentActorInfo;
+
     [Header("Cooldown")]
     public float Cooldown = 0f;
     private float lastCastTime = -999f;
@@ -62,6 +86,13 @@ public abstract class GameplayAbility
         MaxCharges = Mathf.Max(1, data.maxCharges);
         ChargeRecoveryTime = data.chargeRecoveryTime;
         _remainingCharges = MaxCharges;
+
+        // 新 GAS 字段
+        AbilityInstancingPolicy = data.abilityInstancingPolicy;
+        AbilityTags = new List<GameplayTagSO>(data.abilityTags);
+        CancelAbilitiesWithTag = new List<GameplayTagSO>(data.cancelAbilitiesWithTag);
+        BlockAbilitiesWithTag = new List<GameplayTagSO>(data.blockAbilitiesWithTag);
+        ActivationOwnedTags = new List<GameplayTagSO>(data.activationOwnedTags);
 
         if (this is DefaultGameplayAbility defaultAbility)
         {
@@ -318,15 +349,203 @@ public abstract class GameplayAbility
 
     protected abstract void Activate();
 
-    public virtual void End()
+    // ================================================================
+    // 协议化能力生命周期（对应 UE5 GameplayAbility）
+    // ================================================================
+
+    /// <summary>
+    /// 检查是否可以激活（不修改状态）
+    /// 对应 UE5: UGameplayAbility::CanActivateAbility
+    /// </summary>
+    public bool CanActivateAbility(GameplayAbilityActorInfo actorInfo)
     {
+        if (IsOnCooldown()) return false;
+        if (!CheckCost()) return false;
+        if (TagComp != null)
+        {
+            foreach (var tag in ActivationRequiredTags)
+                if (!TagComp.HasTagOrChild(tag)) return false;
+            foreach (var tag in ActivationBlockedTags)
+                if (TagComp.HasTagOrChild(tag)) return false;
+        }
+        else
+        {
+            if (ActivationRequiredTags != null && ActivationRequiredTags.Count > 0) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// 预激活钩子（在 ActivateAbility 之前调用）
+    /// 对应 UE5: 隐式的 PreActivate 逻辑
+    /// </summary>
+    public virtual void PreActivate(int specHandle, GameplayAbilityActorInfo actorInfo)
+    {
+        CurrentSpecHandle = specHandle;
+        CurrentActorInfo = actorInfo;
+    }
+
+    /// <summary>
+    /// 实际的激活入口（接受 Handle 和 ActorInfo）
+    /// 对应 UE5: UGameplayAbility::ActivateAbility
+    /// </summary>
+    public virtual void ActivateAbility(int specHandle, GameplayAbilityActorInfo actorInfo)
+    {
+        PreActivate(specHandle, actorInfo);
+
+        if (!CommitAbility(specHandle, actorInfo, out _))
+        {
+            EndAbility(specHandle, actorInfo, new GameplayAbilityActivationInfo(), true);
+            return;
+        }
+
+        // 授予Tag
+        if (TagComp != null)
+        {
+            foreach (var tag in GrantedTags)
+                TagComp.AddTag(tag);
+        }
+
+        if (OwnerASC != null)
+            OwnerASC.SetCurrentAbility(this);
+
+        Activate();
+    }
+
+    /// <summary>
+    /// 提交能力（Cost + Cooldown）
+    /// 对应 UE5: UGameplayAbility::CommitAbility
+    /// </summary>
+    public bool CommitAbility(int specHandle, GameplayAbilityActorInfo actorInfo, out List<GameplayTagSO> relevantTags)
+    {
+        relevantTags = null;
+        if (!CommitCost(specHandle, actorInfo)) return false;
+        if (!CommitCooldown(specHandle, actorInfo, false, out relevantTags)) return false;
+
+        if (OwnerASC != null)
+            OwnerASC.OnAbilityCommitted?.Invoke(this);
+
+        return true;
+    }
+
+    /// <summary>
+    /// 只提交消耗
+    /// 对应 UE5: UGameplayAbility::CommitAbilityCost
+    /// </summary>
+    public bool CommitCost(int specHandle, GameplayAbilityActorInfo actorInfo)
+    {
+        if (_costEffect == null) return true;
+        if (OwnerASC == null || OwnerASC.Attributes == null) return false;
+
+        var attrs = OwnerASC.Attributes;
+        if (_costEffect.damage > 0f && attrs.Health < _costEffect.damage) return false;
+
+        foreach (var mod in _costEffect.modifiers)
+        {
+            var attrValue = attrs.GetAttributeValue(mod.attribute);
+            if (attrValue != null && attrValue.BaseValue + mod.value < 0f) return false;
+        }
+
+        try
+        {
+            int handle = OwnerASC.ApplyGameplayEffect(_costEffect, OwnerASC);
+            return handle != -1;
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"CommitCost: threw {e}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 只提交冷却
+    /// 对应 UE5: UGameplayAbility::CommitAbilityCooldown
+    /// </summary>
+    public bool CommitCooldown(int specHandle, GameplayAbilityActorInfo actorInfo, bool forceCooldown, out List<GameplayTagSO> relevantTags)
+    {
+        relevantTags = null;
+        lastCastTime = Time.time;
+
+        if (MaxCharges > 1)
+        {
+            _remainingCharges = Mathf.Max(0, _remainingCharges - 1);
+        }
+
+        if (_cooldownEffect != null && _cooldownTag != null && OwnerASC != null && MaxCharges <= 1)
+        {
+            var cdSpec = new CooldownEffectSpec(_cooldownEffect, OwnerASC, _cooldownTag);
+            OwnerASC.ApplyEffectSpec(cdSpec);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 结束能力
+    /// 对应 UE5: UGameplayAbility::EndAbility
+    /// </summary>
+    public virtual void EndAbility(int specHandle, GameplayAbilityActorInfo actorInfo,
+        GameplayAbilityActivationInfo activationInfo, bool bWasCancelled)
+    {
+        // 移除授予Tag
         if (TagComp != null)
         {
             foreach (var tag in GrantedTags)
                 TagComp.RemoveTag(tag);
+            foreach (var tag in ActivationOwnedTags)
+                TagComp.RemoveTag(tag);
         }
 
+        // 减少Spec的ActiveCount
+        if (Spec != null) Spec.ActiveCount--;
+
         if (OwnerASC != null)
+        {
             OwnerASC.ClearCurrentAbility(this);
+            OwnerASC.OnAbilityEnded?.Invoke(this);
+        }
+    }
+
+    /// <summary>
+    /// 判断此能力是否应响应某个 GameplayEvent
+    /// 对应 UE5: UGameplayAbility::ShouldAbilityRespondToEvent
+    /// </summary>
+    public virtual bool ShouldAbilityRespondToEvent(GameplayTagSO eventTag, GameplayEventData payload)
+    {
+        if (eventTag == null) return false;
+        // 检查 AbilityTags 中是否有匹配的 tag（通过层级匹配）
+        foreach (var abilityTag in AbilityTags)
+            if (abilityTag == eventTag || abilityTag.HasChild(eventTag) || eventTag.HasChild(abilityTag))
+                return true;
+        return false;
+    }
+
+    /// <summary>
+    /// 设置当前角色信息
+    /// </summary>
+    public void SetCurrentActorInfo(int specHandle, GameplayAbilityActorInfo actorInfo)
+    {
+        CurrentSpecHandle = specHandle;
+        CurrentActorInfo = actorInfo;
+    }
+
+    /// <summary>
+    /// 获取能力等级
+    /// 对应 UE5: UGameplayAbility::GetAbilityLevel
+    /// </summary>
+    public int GetAbilityLevel() => AbilityLevel;
+
+    /// <summary>
+    /// 获取来源对象
+    /// 对应 UE5: UGameplayAbility::GetCurrentSourceObject
+    /// </summary>
+    public object GetCurrentSourceObject() => SourceObject;
+
+    // 向后兼容的旧版 End（被新代码中调用）
+    public virtual void End()
+    {
+        EndAbility(CurrentSpecHandle, CurrentActorInfo,
+            new GameplayAbilityActivationInfo(), false);
     }
 }

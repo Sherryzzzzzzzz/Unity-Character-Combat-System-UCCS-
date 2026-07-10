@@ -111,6 +111,15 @@ public class PlayerAttackState : PlayerStateBase
         }
         else if (playerController.defend)
         {
+            // 检查是否可以从当前攻击中取消进入格挡
+            if (playerModel.pac != null && playerModel.pac.CanBeCanceledBy(CancelActionType.Guard))
+            {
+                // 停止当前技能并直接进入格挡状态
+                playerModel.pac.StopAndCleanup(true, false);
+                playerModel.ChangePlayerState(PlayerState.guard);
+                return;
+            }
+            // 如果不可取消，则缓存输入（用于连招窗口）
             playerModel.tagComponent.AddTransientTag(playerModel.DefendInputTag);
         }
     }

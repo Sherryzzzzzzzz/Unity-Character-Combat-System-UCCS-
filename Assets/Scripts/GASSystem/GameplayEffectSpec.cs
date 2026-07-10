@@ -19,6 +19,21 @@ public class GameplayEffectSpec
     public AbilitySystemComponent InstigatorASC { get; }
 
     /// <summary>
+    /// 效果上下文 — 对应 UE5 FGameplayEffectSpec::Context
+    /// </summary>
+    public GameplayEffectContext Context { get; set; }
+
+    /// <summary>
+    /// 效果等级 — 对应 UE5 FGameplayEffectSpec::Level
+    /// </summary>
+    public float Level { get; set; } = 1f;
+
+    /// <summary>
+    /// SetByCaller Magnitudes (Tag → Value)
+    /// </summary>
+    private readonly Dictionary<GameplayTagSO, float> _setByCallerMagnitudes = new Dictionary<GameplayTagSO, float>();
+
+    /// <summary>
     /// 施加时捕获的施加者属性快照
     /// </summary>
     public Dictionary<GameplayAttribute, float> CapturedAttackerAttributes { get; } =
@@ -56,6 +71,27 @@ public class GameplayEffectSpec
     }
 
     /// <summary>
+    /// 设置 SetByCaller Magnitude
+    /// 对应 UE5: FGameplayEffectSpec::SetSetByCallerMagnitude
+    /// </summary>
+    public void SetByCallerMagnitude(GameplayTagSO tag, float magnitude)
+    {
+        if (tag != null)
+            _setByCallerMagnitudes[tag] = magnitude;
+    }
+
+    /// <summary>
+    /// 获取 SetByCaller Magnitude
+    /// 对应 UE5: FGameplayEffectSpec::GetSetByCallerMagnitude
+    /// </summary>
+    public float GetSetByCallerMagnitude(GameplayTagSO tag, float defaultIfNotFound = 0f)
+    {
+        if (tag != null && _setByCallerMagnitudes.TryGetValue(tag, out float val))
+            return val;
+        return defaultIfNotFound;
+    }
+
+    /// <summary>
     /// 解析指定修改器条目的 Magnitude 值
     /// 优先级：Override → Custom → AttributeBased → Static
     /// </summary>
@@ -84,6 +120,12 @@ public class GameplayEffectSpec
                         if (CapturedAttackerAttributes.TryGetValue(mod.captureAttribute, out float capturedValue))
                             return capturedValue;
                     }
+                    return mod.value;
+
+                case MagnitudeCalculation.SetByCaller:
+                    // 按 SetByCallerTag 查找值
+                    if (mod.setByCallerTag != null)
+                        return GetSetByCallerMagnitude(mod.setByCallerTag, mod.value);
                     return mod.value;
 
                 case MagnitudeCalculation.Static:

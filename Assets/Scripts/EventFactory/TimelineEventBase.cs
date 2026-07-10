@@ -15,6 +15,7 @@ public enum TimelineEventType
     Loop,
     Cancel,
     GASEffect,
+    GameplayAbility,
     TargetSearch,
     Cue,
     CooldownTrigger

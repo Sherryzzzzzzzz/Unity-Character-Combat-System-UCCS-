@@ -47,6 +47,34 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
     private int attackLayerIndex = 1;
     
     private TagComponent tagComponent;
+    private AbilitySystemComponent _asc;
+
+    /// <summary>
+    /// 通过 Spec API 激活 GAS 能力（新的推荐方式）
+    /// 如果找不到 Spec Handle，fallback 到旧 string-key API
+    /// </summary>
+    public int ActivateAbilityViaSpec(string abilityName)
+    {
+        if (_asc == null) return -1;
+
+        // 先尝试通过 Spec API 按 Tag/名称激活
+        foreach (var spec in _asc.ActivatableAbilities)
+        {
+            if (spec.Ability != null && spec.Ability.GetType().Name.Contains(abilityName))
+                return _asc.TryActivateAbilityByHandle(spec.Handle) ? spec.Handle : -1;
+        }
+
+        // Fallback: 旧版 string-key API
+        return _asc.ActivateAbility(abilityName);
+    }
+
+    /// <summary>
+    /// 通过 GameplayTag 触发所有匹配的 Ability
+    /// </summary>
+    public int ActivateAbilitiesByTag(GameplayTagSO tag)
+    {
+        return _asc != null ? _asc.TryActivateAbilitiesByTag(tag) : 0;
+    }
     
     [Tooltip("开始一次新攻击（起手式）时的淡入时间")]
     public float attackFadeInDuration = 0.2f;
@@ -72,6 +100,7 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
     {
         _Animancer = GetComponent<AnimancerComponent>();
         tagComponent = GetComponent<TagComponent>();
+        _asc = GetComponent<AbilitySystemComponent>();
 
         if (_Animancer.Layers.Count <= attackLayerIndex)
             _Animancer.Layers.Count = attackLayerIndex + 1;

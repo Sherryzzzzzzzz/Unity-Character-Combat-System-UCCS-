@@ -110,4 +110,22 @@ public class GameplayEffect : ScriptableObject
     [Header("GameplayCue")]
     [Tooltip("效果施加/移除时触发的 Cue 标签（用于 VFX/SFX 解耦）")]
     public GameplayTagSO cueTag;
+
+    [Header("授予 Ability (GrantAbility)")]
+    [Tooltip("此 GE 激活时授予目标的 Ability 列表")]
+    public List<GameplayAbilitySpecDef> grantedAbilities = new List<GameplayAbilitySpecDef>();
+
+    [Header("Immunity (免疫)")]
+    [Tooltip("阻止此 GE 应用的查询条件")]
+    public List<GameplayTagQuery> applicationImmunityQueries = new List<GameplayTagQuery>();
+
+    [Header("Expiration Effects (过期触发)")]
+    [Tooltip("GE 过期时自动触发的效果")]
+    public List<GameplayEffect> expirationEffects = new List<GameplayEffect>();
+    [Tooltip("GE 被提前移除时触发的效果")]
+    public List<GameplayEffect> prematureExpirationEffects = new List<GameplayEffect>();
+
+    [Header("Remove Gameplay Effects with Tags")]
+    [Tooltip("施加时自动移除目标身上拥有这些Tag的Active GE")]
+    public List<GameplayTagSO> removeGameplayEffectsWithTags = new List<GameplayTagSO>();
 }

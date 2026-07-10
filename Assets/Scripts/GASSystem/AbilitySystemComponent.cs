@@ -5,6 +5,7 @@ public class AbilitySystemComponent : MonoBehaviour
 {
     [SerializeField] public AttributeSet Attributes;
 
+    // ===== 旧版 string-key 能力管理（保留向后兼容） =====
     private Dictionary<string, GameplayAbility> abilities =
         new Dictionary<string, GameplayAbility>();
 
@@ -15,6 +16,25 @@ public class AbilitySystemComponent : MonoBehaviour
     private readonly Dictionary<int, GameplayAbility> _activeAbilitiesByHandle = new Dictionary<int, GameplayAbility>();
     private readonly Dictionary<GameplayAbility, int> _activeAbilityHandles = new Dictionary<GameplayAbility, int>();
 
+    // ===== 新版 Spec-based 能力管理（对应 UE5） =====
+    /// <summary>所有已授予的能力Spec列表</summary>
+    [SerializeField] private List<GameplayAbilitySpec> _activatableAbilities = new List<GameplayAbilitySpec>();
+    /// <summary>公开的能力Spec列表（只读访问）</summary>
+    public IReadOnlyList<GameplayAbilitySpec> ActivatableAbilities => _activatableAbilities;
+    private int _nextSpecHandle = 1000;
+    /// <summary>通过 EventTag 触发的能力映射 (Tag → Spec Handles)</summary>
+    private readonly Dictionary<GameplayTagSO, List<int>> _triggeredAbilityMap = new Dictionary<GameplayTagSO, List<int>>();
+
+    // ===== 委托系统（对应 UE5 的 Delegates） =====
+    public System.Action<GameplayAbility> OnAbilityActivated;
+    public System.Action<GameplayAbility> OnAbilityEnded;
+    public System.Action<GameplayAbility> OnAbilityCommitted;
+    public System.Action<GameplayAbility, GameplayTagSO> OnAbilityFailed;
+    public System.Action<AbilitySystemComponent, GameplayEffectSpec, int> OnGameplayEffectAppliedToSelf;
+    public System.Action<AbilitySystemComponent, GameplayEffectSpec, int> OnGameplayEffectAppliedToTarget;
+    public System.Action<AbilitySystemComponent, GameplayEffectSpec, int> OnActiveGameplayEffectAddedToSelf;
+    public System.Action<GameplayTagSO, int> OnTagCountChanged;
+
     private TagComponent tagComponent;
 
     [SerializeField] private GameplayTagSO stunnedTag;
@@ -24,8 +44,7 @@ public class AbilitySystemComponent : MonoBehaviour
     private readonly List<ActiveGameplayEffect> _activeEffects = new List<ActiveGameplayEffect>();
     private readonly Dictionary<int, ActiveGameplayEffect> _activeEffectsByHandle = new Dictionary<int, ActiveGameplayEffect>();
     private readonly Dictionary<GameplayEffect, List<int>> _effectHandleGroups = new Dictionary<GameplayEffect, List<int>>();
-    private readonly Dictionary<GameplayEffect, ActiveGameplayEffect> _effectLookup =
-        new Dictionary<GameplayEffect, ActiveGameplayEffect>();
+    private readonly Dictionary<GameplayEffect, ActiveGameplayEffect> _effectLookup = new Dictionary<GameplayEffect, ActiveGameplayEffect>();
 
     // cancelOnAbilityEnd 支持：Ability Handle → 关联 Effect Handles
     private readonly Dictionary<int, List<int>> _abilityEffectLinks = new Dictionary<int, List<int>>();
@@ -181,6 +200,398 @@ public class AbilitySystemComponent : MonoBehaviour
 
     #endregion
 
+    #region Spec-based 能力管理（对应 UE5 ASC API）
+
+    /// <summary>
+    /// 授予一个能力 → 创建 GameplayAbilitySpec 并添加到 ActivatableAbilities
+    /// 对应 UE5: UAbilitySystemComponent::GiveAbility
+    /// </summary>
+    public int GiveAbility(GameplayAbility ability, int level = 1, int inputID = -1, object sourceObject = null)
+    {
+        if (ability == null) return -1;
+        ability.Initialize(this);
+
+        // 检查是否已存在（非Instanced模式复用）
+        foreach (var existing in _activatableAbilities)
+        {
+            if (existing.Ability != null && existing.Ability.GetType() == ability.GetType() &&
+                ability.AbilityInstancingPolicy == InstancingPolicy.InstancedPerActor)
+            {
+                existing.Level = level;
+                return existing.Handle;
+            }
+        }
+
+        int handle = _nextSpecHandle++;
+        var spec = new GameplayAbilitySpec(ability, level, inputID, sourceObject)
+        {
+            Handle = handle
+        };
+        _activatableAbilities.Add(spec);
+
+        // 自动激活
+        if (spec.bActivateOnce)
+            TryActivateAbilityBySpec(spec);
+
+        return handle;
+    }
+
+    /// <summary>
+    /// 通过 Handle 激活 Ability
+    /// 对应 UE5: ASC::TryActivateAbility
+    /// </summary>
+    public bool TryActivateAbilityByHandle(int handle)
+    {
+        var spec = FindSpecByHandle(handle);
+        if (spec == null) return false;
+        return TryActivateAbilityBySpec(spec);
+    }
+
+    /// <summary>
+    /// 通过 GameplayTag 触发所有匹配的 Ability
+    /// 对应 UE5: ASC::TryActivateAbilitiesByTag
+    /// </summary>
+    public int TryActivateAbilitiesByTag(GameplayTagSO tag)
+    {
+        int count = 0;
+        foreach (var spec in _activatableAbilities)
+        {
+            if (spec.Ability != null && spec.Ability.AbilityTags != null)
+            {
+                foreach (var abilityTag in spec.Ability.AbilityTags)
+                    if (abilityTag == tag || (tag.parentTag != null && abilityTag == tag.parentTag))
+                    {
+                        if (TryActivateAbilityBySpec(spec)) count++;
+                        break;
+                    }
+            }
+        }
+        return count;
+    }
+
+    private bool TryActivateAbilityBySpec(GameplayAbilitySpec spec)
+    {
+        if (spec == null || spec.Ability == null) return false;
+
+        var ability = spec.Ability;
+        var actorInfo = GameplayAbilityActorInfo.FromSingleActor(gameObject);
+        var activationInfo = spec.ActivationInfo;
+
+        // 检查阻塞标签
+        if (tagComponent != null)
+        {
+            foreach (var spec2 in _activatableAbilities)
+            {
+                if (spec2.Ability != null && spec2.ActiveCount > 0)
+                {
+                    foreach (var blockTag in spec2.Ability.BlockAbilitiesWithTag)
+                        if (tagComponent.HasTagOrChild(blockTag))
+                        {
+                            OnAbilityFailed?.Invoke(ability, blockTag);
+                            return false;
+                        }
+                }
+            }
+        }
+
+        // 检查激活条件
+        if (!ability.CanActivateAbility(actorInfo))
+        {
+            OnAbilityFailed?.Invoke(ability, null);
+            return false;
+        }
+
+        // Instancing
+        GameplayAbility instance;
+        if (ability.AbilityInstancingPolicy == InstancingPolicy.InstancedPerActor)
+        {
+            instance = spec.ReplicatedInstances.Count > 0 ? spec.ReplicatedInstances[0] : ability;
+            if (spec.ReplicatedInstances.Count == 0)
+                spec.ReplicatedInstances.Add(instance);
+        }
+        else // InstancedPerExecution (default)
+        {
+            // 创建新实例（简化：复用同一个对象但重置关键状态）
+            instance = ability;
+        }
+
+        // PreActivate（新增钩子）
+        instance.PreActivate(spec.Handle, actorInfo);
+
+        // 取消被此能力标记为CancelByTag的其他能力
+        foreach (var cancelTag in ability.CancelAbilitiesWithTag)
+        {
+            CancelAbilitiesWithTag(cancelTag);
+        }
+
+        // 授予 ActivationOwnedTags
+        if (tagComponent != null)
+        {
+            foreach (var tag in ability.ActivationOwnedTags)
+                tagComponent.AddTag(tag);
+        }
+
+        // Activate
+        instance.SetCurrentActorInfo(spec.Handle, actorInfo);
+        spec.ActiveCount++;
+        int abilityHandle = _nextAbilityHandle++;
+        _activeAbilitiesByHandle[abilityHandle] = instance;
+        _activeAbilityHandles[instance] = abilityHandle;
+
+        try
+        {
+            instance.ActivateAbility(spec.Handle, actorInfo);
+            OnAbilityActivated?.Invoke(instance);
+            return true;
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"ASC: ActivateAbility threw: {e}");
+            spec.ActiveCount--;
+            OnAbilityFailed?.Invoke(instance, null);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 取消拥有指定Tag的所有活跃Ability
+    /// 对应 UE5: ASC::CancelAbilitiesWithTag
+    /// </summary>
+    public void CancelAbilitiesWithTag(GameplayTagSO tag)
+    {
+        if (tag == null) return;
+        foreach (var spec in _activatableAbilities)
+        {
+            if (spec.ActiveCount > 0 && spec.Ability != null)
+            {
+                foreach (var abilityTag in spec.Ability.AbilityTags)
+                    if (abilityTag == tag || abilityTag.HasChild(tag))
+                    {
+                        var actorInfo = GameplayAbilityActorInfo.FromSingleActor(gameObject);
+                        spec.Ability.EndAbility(spec.Handle, actorInfo, spec.ActivationInfo, true);
+                        break;
+                    }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 通过 Handle 取消特定 Ability
+    /// </summary>
+    public void CancelAbilityByHandle(int handle)
+    {
+        var spec = FindSpecByHandle(handle);
+        if (spec != null && spec.ActiveCount > 0)
+        {
+            var actorInfo = GameplayAbilityActorInfo.FromSingleActor(gameObject);
+            spec.Ability.EndAbility(spec.Handle, actorInfo, spec.ActivationInfo, true);
+        }
+    }
+
+    private GameplayAbilitySpec FindSpecByHandle(int handle)
+    {
+        foreach (var spec in _activatableAbilities)
+            if (spec.Handle == handle) return spec;
+        return null;
+    }
+
+    /// <summary>
+    /// 设置输入按下/释放（用于 InputID 绑定的 Ability）
+    /// </summary>
+    public void SetInputPressed(int handle)
+    {
+        var spec = FindSpecByHandle(handle);
+        if (spec != null) spec.InputPressed = true;
+    }
+
+    public void SetInputReleased(int handle)
+    {
+        var spec = FindSpecByHandle(handle);
+        if (spec != null) spec.InputPressed = false;
+    }
+
+    #endregion
+
+    #region EffectContext + MakeOutgoingSpec（对应 UE5）
+
+    /// <summary>
+    /// 创建 EffectContext
+    /// 对应 UE5: ASC::MakeEffectContext
+    /// </summary>
+    public GameplayEffectContext MakeEffectContext()
+    {
+        return new GameplayEffectContext(this, gameObject);
+    }
+
+    /// <summary>
+    /// 创建出站 GameplayEffectSpec
+    /// 对应 UE5: ASC::MakeOutgoingSpec
+    /// </summary>
+    public GameplayEffectSpec MakeOutgoingSpec(GameplayEffect effect, float level, GameplayEffectContext context = null)
+    {
+        if (effect == null) return null;
+        var spec = EffectSpecFactory.CreateSpec(effect, this);
+        if (context != null)
+        {
+            spec.Context = context;
+            spec.Level = level;
+            // 将 Context 中的 SetByCaller magnitudes 复制到 Spec
+            if (context.SetByCallerMagnitudes != null)
+            {
+                foreach (var kvp in context.SetByCallerMagnitudes)
+                    spec.SetByCallerMagnitude(kvp.Key, kvp.Value);
+            }
+        }
+        return spec;
+    }
+
+    /// <summary>
+    /// 向 Target 施加 EffectSpec（携带完整 Context）
+    /// 对应 UE5: ASC::ApplyGameplayEffectSpecToTarget
+    /// </summary>
+    public int ApplyGameplayEffectSpecToTarget(GameplayEffectSpec spec, AbilitySystemComponent target)
+    {
+        if (spec == null || target == null) return -1;
+        int handle = target.ApplyEffectSpec(spec);
+        if (handle > 0)
+        {
+            OnGameplayEffectAppliedToTarget?.Invoke(target, spec, handle);
+        }
+        return handle;
+    }
+
+    /// <summary>
+    /// 向 Self 施加 EffectSpec
+    /// 对应 UE5: ASC::ApplyGameplayEffectSpecToSelf
+    /// </summary>
+    public int ApplyGameplayEffectSpecToSelf(GameplayEffectSpec spec)
+    {
+        if (spec == null) return -1;
+        int handle = ApplyEffectSpec(spec);
+        if (handle > 0)
+        {
+            OnGameplayEffectAppliedToSelf?.Invoke(this, spec, handle);
+            OnActiveGameplayEffectAddedToSelf?.Invoke(this, spec, handle);
+        }
+        return handle;
+    }
+
+    #endregion
+
+    #region GameplayEvent 事件系统（对应 UE5）
+
+    /// <summary>
+    /// 触发 GameplayEvent → 激活所有监听该 Tag 的 Ability
+    /// 对应 UE5: ASC::HandleGameplayEvent
+    /// 返回成功触发的 Ability 数量
+    /// </summary>
+    public int HandleGameplayEvent(GameplayTagSO eventTag, GameplayEventData payload = null)
+    {
+        if (eventTag == null) return 0;
+        int triggered = 0;
+
+        // 1) 通过 _triggeredAbilityMap 查找显式注册的 Ability（精确Tag匹配）
+        if (_triggeredAbilityMap.TryGetValue(eventTag, out var specHandles))
+        {
+            foreach (var handle in specHandles)
+            {
+                var spec = FindSpecByHandle(handle);
+                if (spec != null && spec.Ability != null && spec.Ability.ShouldAbilityRespondToEvent(eventTag, payload))
+                {
+                    if (TryActivateAbilityBySpec(spec))
+                        triggered++;
+                }
+            }
+        }
+
+        // 2) 遍历所有 Ability，检查哪些监听此事件Tag（通过 TagHierarchy）
+        foreach (var spec in _activatableAbilities)
+        {
+            if (spec.Ability == null) continue;
+            if (spec.Ability.ShouldAbilityRespondToEvent(eventTag, payload))
+            {
+                // 避免重复激活
+                if (_triggeredAbilityMap.TryGetValue(eventTag, out var registered) && registered.Contains(spec.Handle))
+                    continue;
+                if (TryActivateAbilityBySpec(spec))
+                    triggered++;
+            }
+        }
+
+        return triggered;
+    }
+
+    /// <summary>
+    /// 获取当前活跃效果数量
+    /// </summary>
+    public int GetNumActiveGameplayEffects() => _activeEffects.Count;
+
+    /// <summary>
+    /// 注册一个 Ability 作为特定 GameplayEvent 的触发目标
+    /// </summary>
+    public void RegisterAbilityForEvent(int specHandle, GameplayTagSO eventTag)
+    {
+        if (!_triggeredAbilityMap.TryGetValue(eventTag, out var handles))
+        {
+            handles = new List<int>();
+            _triggeredAbilityMap[eventTag] = handles;
+        }
+        if (!handles.Contains(specHandle))
+            handles.Add(specHandle);
+    }
+
+    #endregion
+
+    #region Loose Tags（对应 UE5 AddLooseGameplayTag）
+
+    /// <summary>
+    /// 添加不通过GE的"松散标签"（如代码直接标记状态）
+    /// 对应 UE5: ASC::AddLooseGameplayTag
+    /// </summary>
+    public void AddLooseGameplayTag(GameplayTagSO tag, int count = 1)
+    {
+        if (tagComponent != null && tag != null)
+        {
+            for (int i = 0; i < count; i++)
+                tagComponent.AddTag(tag);
+            OnTagCountChanged?.Invoke(tag, tagComponent.GetTagCount(tag));
+        }
+    }
+
+    public void RemoveLooseGameplayTag(GameplayTagSO tag, int count = 1)
+    {
+        if (tagComponent != null && tag != null)
+        {
+            for (int i = 0; i < count; i++)
+                tagComponent.RemoveTag(tag);
+            OnTagCountChanged?.Invoke(tag, tagComponent.GetTagCount(tag));
+        }
+    }
+
+    /// <summary>
+    /// 获取指定Tag的计数（包括Loose Tag和GE授予的Tag）
+    /// 对应 UE5: ASC::GetGameplayTagCount
+    /// </summary>
+    public int GetTagCount(GameplayTagSO tag)
+    {
+        return tagComponent?.GetTagCount(tag) ?? 0;
+    }
+
+    /// <summary>
+    /// 注册Tag变化事件
+    /// 对应 UE5: ASC::RegisterGameplayTagEvent
+    /// </summary>
+    public void RegisterGameplayTagEvent(GameplayTagSO tag, System.Action<GameplayTagSO, int> callback)
+    {
+        OnTagCountChanged += (changedTag, count) =>
+        {
+            if (changedTag == tag || tag.HasChild(changedTag))
+                callback?.Invoke(changedTag, count);
+        };
+    }
+
+    #endregion
+
     #region AbilityTask 管理
 
     private readonly Dictionary<int, List<AbilityTask>> _abilityTasks = new Dictionary<int, List<AbilityTask>>();
@@ -304,8 +715,26 @@ public class AbilitySystemComponent : MonoBehaviour
                 if (tagComponent.HasTag(blockedTag))
                     return -1;
             }
+
+            // ★ Immunity 检查
+            foreach (var immunityQuery in effect.applicationImmunityQueries)
+            {
+                if (immunityQuery.Matches(tagComponent))
+                {
+                    Debug.Log($"ApplyEffectSpec: {effect.name} blocked by immunity query on {gameObject.name}");
+                    return -1;
+                }
+            }
+
+            // ★ RemoveGameplayEffectsWithTags: 施加前先移除拥有这些Tag的活跃GE
+            foreach (var removeTag in effect.removeGameplayEffectsWithTags)
+            {
+                RemoveActiveEffectsWithTag(removeTag);
+            }
         }
 
+        // ★ Grant Abilities: Duration/Infinite GE 激活时授予能力
+        int appliedHandle;
         try
         {
             switch (effect.durationPolicy)
@@ -321,6 +750,21 @@ public class AbilitySystemComponent : MonoBehaviour
                     if (handle <= 0)
                         return -1;
                     NotifyCueAdd(effect, spec);
+
+                    // ★ Grant Abilities
+                    if (effect.grantedAbilities != null && effect.grantedAbilities.Count > 0)
+                    {
+                        foreach (var granted in effect.grantedAbilities)
+                        {
+                            if (granted.Ability != null)
+                            {
+                                var runtimeAbility = granted.Ability.CreateRuntimeAbility();
+                                int grantedHandle = GiveAbility(runtimeAbility, granted.Level, granted.InputID, granted.SourceObject);
+                                // 记录来自哪个 ActiveGE Handle (用于 GE 移除时收回)
+                                _grantedAbilityMap[grantedHandle] = handle;
+                            }
+                        }
+                    }
 
                     // 调用生命周期回调
                     try { spec.OnInitialApply(this); }
@@ -338,6 +782,31 @@ public class AbilitySystemComponent : MonoBehaviour
             return -1;
         }
     }
+
+    /// <summary>
+    /// 移除拥有指定Tag的所有活跃GE
+    /// </summary>
+    public void RemoveActiveEffectsWithTag(GameplayTagSO tag)
+    {
+        if (tag == null) return;
+        for (int i = _activeEffects.Count - 1; i >= 0; i--)
+        {
+            var active = _activeEffects[i];
+            foreach (var grantedTag in active.EffectData.grantedTags)
+            {
+                if (grantedTag == tag || tag.HasChild(grantedTag))
+                {
+                    RemoveActiveEffectInternal(active);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 记录 Ability Handle → ActiveGE Handle 的映射（用于 GE 移除时收回 Ability）
+    /// </summary>
+    private readonly Dictionary<int, int> _grantedAbilityMap = new Dictionary<int, int>();
 
     /// <summary>
     /// 施加效果并关联到 Ability Handle（用于 cancelOnAbilityEnd）

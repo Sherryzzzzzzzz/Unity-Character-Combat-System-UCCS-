@@ -41,12 +41,25 @@ public class PlayerSkyState : PlayerStateBase
                 playerModel.transform.rotation = Quaternion.Slerp(
                     playerModel.transform.rotation, targetRot, Time.deltaTime * 20f);
             }
+
+            // 【FIX】Apply horizontal movement based on input while locked on in air.
+            // PlayerController.Update() handles camera-relative direction, but speed was 0
+            // because PlayerGroundAimState.Exit() resets it. Set it here so the player
+            // can move horizontally during a lock-on jump.
+            playerController.speed = playerModel.walkSpeed * playerController.movement.magnitude;
         }
 
         if (playerController.lightAttack)
         {
             Debug.Log("In Sky State: Light Attack Triggered");
             playerModel.ChangePlayerState(PlayerState.attack,AttackType.skyLight);
+            return;
+        }
+
+        // 【BUG 6 FIX】空中也允许进入格挡/弹反（空中防御）
+        if (playerController.defend)
+        {
+            playerModel.ChangePlayerState(PlayerState.attack, AttackType.defend);
             return;
         }
     }

@@ -33,6 +33,16 @@ public class GameOverManager : MonoBehaviour
             gameOverPanel.SetActive(false);
     }
 
+    /// <summary>
+    /// 由 CombatHUD 设置 GameOver 面板引用
+    /// </summary>
+    public void SetGameOverPanel(GameObject panel)
+    {
+        if (gameOverPanel != null && gameOverPanel.activeSelf)
+            gameOverPanel.SetActive(false);
+        gameOverPanel = panel;
+    }
+
     public void ShowGameOver()
     {
         if (gameOverPanel != null)

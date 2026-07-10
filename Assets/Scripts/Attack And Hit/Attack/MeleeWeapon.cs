@@ -90,6 +90,16 @@ public class MeleeWeapon : MonoBehaviour
             _currentAttackEvent.hitPoint = other.ClosestPoint(transform.position);
             hurtBoxManager.ProcessHit(_currentAttackEvent, this.transform.root.gameObject, _ownerASC);
 
+            // ★ 攻击者反馈：轻量卡肉 + 轻微震动
+            var attackerRoot = this.transform.root;
+            var attackerHitStop = attackerRoot.GetComponent<HitStopController>();
+            if (attackerHitStop != null && _currentAttackEvent?.attackData != null)
+                attackerHitStop.ApplyAttackerHitStop(_currentAttackEvent.attackData.forceType);
+
+            // 攻击者相机 FOV Kick
+            if (CameraImpactEffects.Instance != null && _currentAttackEvent?.attackData != null)
+                CameraImpactEffects.Instance.ApplyFOVKick(_currentAttackEvent.attackData.forceType);
+
             _collidersHitThisSwing.Add(other);
         }
         else

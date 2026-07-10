@@ -239,10 +239,11 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     
     private void LateUpdate()
     {
-        // 重置一些一帧有效的输入
+        // 重置一帧有效的输入
         dodge = false;
         lightAttack = false;
         heavyAttack = false;
+        defend = false;
     }
 
     private void FixedUpdate()

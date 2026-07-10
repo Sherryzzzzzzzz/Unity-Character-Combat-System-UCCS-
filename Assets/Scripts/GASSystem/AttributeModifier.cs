@@ -12,13 +12,14 @@ public enum ModifierType
 }
 
 /// <summary>
-/// Magnitude 计算模式
+/// Magnitude 计算模式 — 对应 UE5 EGameplayEffectMagnitudeCalculation
 /// </summary>
 public enum MagnitudeCalculation
 {
-    Static,         // 使用 SO 上的固定值
+    Static,         // ScalableFloat: 使用 SO 上的固定值
     AttributeBased, // 从施加者/目标捕获指定属性值
-    Custom          // 通过 IMagnitudeCalculation 接口自定义
+    Custom,         // CustomCalculationClass: 通过 IMagnitudeCalculation 接口自定义
+    SetByCaller     // 由调用方在运行时通过 Tag 指定
 }
 
 /// <summary>
@@ -76,13 +77,14 @@ public enum GameplayAttribute
 }
 
 /// <summary>
-/// GameplayEffect 中的属性修改器配置条目
+/// GameplayEffect 中的属性修改器配置条目 — 对应 UE5 FGameplayModifierInfo
 /// </summary>
 [Serializable]
 public struct EffectAttributeModifier
 {
     public GameplayAttribute attribute;
     public ModifierType modifierType;
+    /// <summary>基础值（Static / 默认值）</summary>
     public float value;
 
     [Header("Magnitude 计算")]
@@ -91,6 +93,8 @@ public struct EffectAttributeModifier
     public GameplayAttribute captureAttribute;
     [Tooltip("AttributeBased 模式下的捕获来源")]
     public CaptureSource captureSource;
-    [Tooltip("Custom 模式下的自定义计算实现（需实现 IMagnitudeCalculation）")]
+    [Tooltip("Custom 模式下的自定义计算实现")]
     public ScriptableObject customCalculation;
+    [Tooltip("SetByCaller 模式下使用的 Tag 键")]
+    public GameplayTagSO setByCallerTag;
 }

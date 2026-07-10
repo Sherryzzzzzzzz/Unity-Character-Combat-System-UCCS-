@@ -21,6 +21,7 @@ public static class TimelineEventFactoryBootstrap
         EventFactoryRegistry.Register(new LoopEventFactory());
         EventFactoryRegistry.Register(new CancelEventFactory());
         EventFactoryRegistry.Register(new GameplayEffectEventFactory());
+        EventFactoryRegistry.Register(new GameplayAbilityEventFactory());
         EventFactoryRegistry.Register(new TargetSearchEventFactory());
         EventFactoryRegistry.Register(new CueEventFactory());
         EventFactoryRegistry.Register(new CooldownEventFactory());

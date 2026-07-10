@@ -71,9 +71,25 @@ public class Parryable : MonoBehaviour
         }
 
         // 2. 立即打断当前所有行为
-        //    (例如，停止正在播放的攻击动画)
-        var attackComponent = GetComponent<PlayerSkillComponent>() ?? (Component)GetComponent<EnemySkillComponent>();
-        attackComponent?.SendMessage("StopAndCleanup", SendMessageOptions.DontRequireReceiver);
+        //    优先使用直接引用，fallback 到 GetComponent
+        var playerSkill = GetComponent<PlayerSkillComponent>();
+        var enemySkill = GetComponent<EnemySkillComponent>();
+        if (playerSkill != null)
+        {
+            playerSkill.StopAndCleanup(true, false);
+        }
+        else if (enemySkill != null)
+        {
+            enemySkill.StopAndCleanup();
+        }
+        else
+        {
+            // Fallback: 尝试通过 SendMessage 调用（向后兼容）
+            var attackComponent = (Component)playerSkill ?? (Component)enemySkill;
+            if (attackComponent == null)
+                attackComponent = GetComponent<PlayerSkillComponent>() ?? (Component)GetComponent<EnemySkillComponent>();
+            attackComponent?.SendMessage("StopAndCleanup", SendMessageOptions.DontRequireReceiver);
+        }
 
         // (可选) 通过接口禁用更高级的行为，如行为树
         _behaviorController?.InterruptAndDisableBehavior();
@@ -87,11 +103,15 @@ public class Parryable : MonoBehaviour
         _parryRecovered = false;
 
         // 3. 播放”被弹反”的大硬直动画
-        if (_animancer != null && parriedAnimation != null)
+        if (_animancer != null && parriedAnimation != null && parriedAnimation.Clip != null)
         {
-            // 在一个高优先级的层上播放，以覆盖所有其他动画
-            var state = _animancer.Layers[3].Play(parriedAnimation); // 假设 Layer 3 是最高优先级的效果层
-            _animancer.Layers[3].SetWeight(1f);
+            // 确保 Layer 3 存在（最高优先级的效果层）
+            int parryLayerIndex = 3;
+            if (_animancer.Layers.Count <= parryLayerIndex)
+                _animancer.Layers.Count = parryLayerIndex + 1;
+
+            var state = _animancer.Layers[parryLayerIndex].Play(parriedAnimation);
+            _animancer.Layers[parryLayerIndex].SetWeight(1f);
 
             // 动画播放结束后，渐隐层并允许行为恢复
             state.Events(this).OnEnd = () =>

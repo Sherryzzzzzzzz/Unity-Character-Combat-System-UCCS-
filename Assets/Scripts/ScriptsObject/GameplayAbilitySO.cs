@@ -18,13 +18,25 @@ public class GameplayAbilitySO : ScriptableObject
     [Tooltip("充能 CD：每次充能恢复时间（0 = 使用 cooldownEffect.duration）")]
     public float chargeRecoveryTime = 0f;
 
-    [Header("标签")]
+    [Header("标签 (对应 UE5 Ability Tags)")]
+    [Tooltip("此能力的AssetTag（用于按Tag查找/取消/阻塞）")]
+    public List<GameplayTagSO> abilityTags = new List<GameplayTagSO>();
     [Tooltip("激活时要求目标拥有的标签")]
     public List<GameplayTagSO> activationRequiredTags = new List<GameplayTagSO>();
     [Tooltip("激活时目标不能拥有的标签")]
     public List<GameplayTagSO> activationBlockedTags = new List<GameplayTagSO>();
     [Tooltip("激活时授予的标签")]
     public List<GameplayTagSO> grantedTags = new List<GameplayTagSO>();
+    [Tooltip("激活时取消拥有这些Tag的其他Ability")]
+    public List<GameplayTagSO> cancelAbilitiesWithTag = new List<GameplayTagSO>();
+    [Tooltip("激活期间阻塞拥有这些Tag的Ability")]
+    public List<GameplayTagSO> blockAbilitiesWithTag = new List<GameplayTagSO>();
+    [Tooltip("激活期间授予Owner的Tag（结束时会自动移除）")]
+    public List<GameplayTagSO> activationOwnedTags = new List<GameplayTagSO>();
+
+    [Header("实例化")]
+    [Tooltip("实例化策略")]
+    public InstancingPolicy abilityInstancingPolicy = InstancingPolicy.InstancedPerExecution;
 
     [Header("行为")]
     public bool canBeInterrupted = true;

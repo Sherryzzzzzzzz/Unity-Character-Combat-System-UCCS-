@@ -52,6 +52,18 @@ public class TagComponent : MonoBehaviour
     }
 
     /// <summary>
+    /// 获取某个Tag的当前引用计数
+    /// </summary>
+    public int GetTagCount(GameplayTagSO tag)
+    {
+        if (tag == null) return 0;
+        _tagRefCounts.TryGetValue(tag, out var count);
+        // 加上瞬态标签
+        if (transientTags.Contains(tag)) count++;
+        return count;
+    }
+
+    /// <summary>
     /// (非消耗性) 检查是否拥有某个 Tag，主要用于 Strict 模式。
     /// </summary>
     public bool HasTag(GameplayTagSO tag)

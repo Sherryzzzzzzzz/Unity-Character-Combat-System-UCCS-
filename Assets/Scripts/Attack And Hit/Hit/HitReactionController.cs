@@ -102,12 +102,37 @@ public class HitReactionController : MonoBehaviour
 
         float duration = GetHitDuration(_currentHitStrength);
 
-        // 冻帧
-        if (hitFreezeFrame > 0f)
+        // ★ 新版 HitStop：使用 HitStopController 独立卡肉（不冻结全局Time.timeScale）
+        var hitStop = GetComponent<HitStopController>();
+        if (hitStop != null && hit?.attackData != null)
         {
-            Time.timeScale = 0.01f;
-            yield return new WaitForSecondsRealtime(hitFreezeFrame);
-            Time.timeScale = 1f;
+            hitStop.ApplyVictimHitStop(hit.attackData.forceType);
+            // 也给攻击者一点卡肉
+            var attacker = hit.hitObject;
+            if (attacker != null)
+            {
+                var attackerHitStop = attacker.GetComponentInParent<HitStopController>();
+                attackerHitStop?.ApplyAttackerHitStop(hit.attackData.forceType);
+            }
+        }
+        else
+        {
+            // Fallback: 旧版冻帧（仅在 HitStopController 不存在时使用）
+            if (hitFreezeFrame > 0f)
+            {
+                Time.timeScale = 0.01f;
+                yield return new WaitForSecondsRealtime(hitFreezeFrame);
+                Time.timeScale = 1f;
+            }
+        }
+
+        // ★ 命中反馈 VFX + SFX + Hit Flash
+        var feedbackMgr = GetComponent<HitFeedbackManager>();
+        if (feedbackMgr != null && hit?.attackData != null)
+        {
+            Vector3 hitPoint = hit.hitPoint != Vector3.zero ? hit.hitPoint : transform.position;
+            Vector3 attackDir = hit.GetForceDirection();
+            feedbackMgr.PlayHitFeedback(hit.attackData.forceType, hitPoint, attackDir);
         }
 
         // 播动画
