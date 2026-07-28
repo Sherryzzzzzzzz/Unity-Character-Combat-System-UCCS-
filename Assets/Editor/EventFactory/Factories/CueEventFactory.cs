@@ -26,17 +26,17 @@ public class CueEventFactory : ITimelineEventFactory
         root.Add(tagField);
 
         // Cue Action
-        var actionField = new EnumField("Cue Action", cueEvt.cueAction);
+        var actionField = new EnumField("Cue 动作", cueEvt.cueAction);
         actionField.RegisterValueChangedCallback(e => cueEvt.cueAction = (CueAction)e.newValue);
         root.Add(actionField);
 
         // Position Offset
-        var offsetField = new Vector3Field("Position Offset") { value = cueEvt.positionOffset };
+        var offsetField = new Vector3Field("位置偏移") { value = cueEvt.positionOffset };
         offsetField.RegisterValueChangedCallback(e => cueEvt.positionOffset = e.newValue);
         root.Add(offsetField);
 
         // Scale
-        var scaleField = new FloatField("Scale") { value = cueEvt.scale };
+        var scaleField = new FloatField("缩放") { value = cueEvt.scale };
         scaleField.RegisterValueChangedCallback(e => cueEvt.scale = e.newValue);
         root.Add(scaleField);
 

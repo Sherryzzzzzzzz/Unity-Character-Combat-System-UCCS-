@@ -48,8 +48,20 @@ public class PlayerGuardState : PlayerStateBase
             if (!_tagComponent.HasTag(hbm.guardingTag))
             {
                 _tagComponent.AddTag(hbm.guardingTag);
-                Debug.Log($"{playerModel.gameObject.name}: guardEffect null/empty, directly added guardingTag as fallback.");
             }
+        }
+
+        // 【弹反窗口】进入格挡的前 0.35 秒同时也是弹反窗口
+        // 给玩家 normal parry tag，让 ProcessHit 的弹反检测生效
+        if (hbm != null && hbm.normalParryTag != null && _tagComponent != null)
+        {
+            _tagComponent.AddTag(hbm.normalParryTag);
+            playerModel.StartCoroutine(RemoveParryTagAfterDelay(hbm.normalParryTag, 0.35f));
+        }
+        if (hbm != null && hbm.perfectParryTag != null && _tagComponent != null)
+        {
+            _tagComponent.AddTag(hbm.perfectParryTag);
+            playerModel.StartCoroutine(RemoveParryTagAfterDelay(hbm.perfectParryTag, 0.18f));
         }
 
         // 监听 Poise 变化和破防
@@ -104,18 +116,27 @@ public class PlayerGuardState : PlayerStateBase
 
         if (_isExiting) return;
 
-        // 【BUG 5 FIX】受击中时不处理输入，防止与 HitReactionController 状态冲突
+        // 【防御保护】持续强制攻击层权重为 1，防止被外部系统（HitStop/HitReaction）降低
+        if (_attackLayer != null && _attackLayer.Weight < 0.99f)
+            _attackLayer.SetWeight(1f);
+
+        // 防御状态下不处理受击
         if (playerModel.isHitting) return;
 
-        // 检查 guardingTag 是否仍存在（可能在 HurtBoxManager 中被移除）
+        // 检查防御状态是否仍有效（以 isDefending 为权威来源）
+        if (!playerModel.isDefending)
+        {
+            ExitToGround();
+            return;
+        }
+
+        // Fallback: 如果 isDefending 为 true 但 guardingTag 丢失，重新添加
         if (_tagComponent != null)
         {
             var hbm = playerModel.GetComponent<HurtBoxManager>();
             if (hbm != null && hbm.guardingTag != null && !_tagComponent.HasTag(hbm.guardingTag))
             {
-                // guardingTag 被外部移除，退出格挡
-                ExitToGround();
-                return;
+                _tagComponent.AddTag(hbm.guardingTag);
             }
         }
 
@@ -176,12 +197,16 @@ public class PlayerGuardState : PlayerStateBase
             _guardEffectHandle = -1;
         }
 
-        // 【CRITICAL FIX】移除 fallback 添加的 guardingTag
+        // 【CRITICAL FIX】移除 fallback 添加的 guardingTag 和弹反标签
         if (_tagComponent != null)
         {
             var hbm = playerModel.GetComponent<HurtBoxManager>();
-            if (hbm != null && hbm.guardingTag != null)
-                _tagComponent.RemoveTag(hbm.guardingTag);
+            if (hbm != null)
+            {
+                if (hbm.guardingTag != null) _tagComponent.RemoveTag(hbm.guardingTag);
+                if (hbm.normalParryTag != null) _tagComponent.RemoveTag(hbm.normalParryTag);
+                if (hbm.perfectParryTag != null) _tagComponent.RemoveTag(hbm.perfectParryTag);
+            }
         }
 
         playerModel.isAttacking = false;
@@ -200,5 +225,11 @@ public class PlayerGuardState : PlayerStateBase
             playerModel.ChangePlayerState(PlayerState.ground);
         else
             playerModel.ChangePlayerState(PlayerState.sky);
+    }
+
+    private System.Collections.IEnumerator RemoveParryTagAfterDelay(GameplayTagSO tag, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        _tagComponent?.RemoveTag(tag);
     }
 }

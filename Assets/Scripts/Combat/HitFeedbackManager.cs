@@ -51,10 +51,17 @@ public class HitFeedbackManager : MonoBehaviour
     {
         _hitStop.ApplyVictimHitStop(forceType);
 
-        // VFX
+        // VFX — 优先使用配置的 Prefab，否则用默认粒子
         var vfx = GetVFX(forceType);
         if (vfx != null)
+        {
             Instantiate(vfx, hitPoint, Quaternion.LookRotation(-attackDir));
+        }
+        else
+        {
+            // 默认 fallback：彩色闪光粒子
+            PlayDefaultHitParticle(forceType, hitPoint, attackDir);
+        }
 
         // SFX
         var sfx = GetSFX(forceType);
@@ -66,9 +73,76 @@ public class HitFeedbackManager : MonoBehaviour
         if (_impulseSource != null && shake > 0f)
             _impulseSource.GenerateImpulseWithVelocity(attackDir * shake);
 
-        // Hit Flash
+        // Hit Flash — 优先使用自定义材质，否则用 emission 闪白
         if (hitFlashMaterial != null && _renderers != null)
             StartCoroutine(HitFlashRoutine());
+        else if (_renderers != null && _renderers.Length > 0)
+            StartCoroutine(DefaultHitFlashRoutine(forceType));
+    }
+
+    /// <summary>
+    /// 默认击中粒子：使用 Unity 基本粒子或 Debug 绘制
+    /// </summary>
+    private void PlayDefaultHitParticle(AttackForceType forceType, Vector3 hitPoint, Vector3 attackDir)
+    {
+        // 用 Debug.Draw 提供最低限度的视觉提示（在 Scene 视图可见）
+        Color c = forceType switch
+        {
+            AttackForceType.Light => Color.yellow,
+            AttackForceType.Medium => Color.white,
+            AttackForceType.Heavy => new Color(1f, 0.5f, 0f),
+            AttackForceType.Blow => Color.red,
+            _ => Color.white
+        };
+        Debug.DrawRay(hitPoint, -attackDir * 0.5f, c, 0.5f);
+
+        // 尝试使用 GlobalVFXPool（如果项目中存在）
+        var pool = UnityEngine.Object.FindFirstObjectByType<GlobalVFXPool>();
+        if (pool != null)
+        {
+            pool.SpawnHitVFX(forceType, hitPoint, Quaternion.LookRotation(-attackDir));
+        }
+    }
+
+    /// <summary>
+    /// 默认闪白效果（修改材质的 emission 颜色）
+    /// </summary>
+    private System.Collections.IEnumerator DefaultHitFlashRoutine(AttackForceType forceType)
+    {
+        if (_renderers == null || _renderers.Length == 0) yield break;
+
+        Color flashColor = forceType switch
+        {
+            AttackForceType.Light => Color.yellow * 0.5f,
+            AttackForceType.Medium => Color.white * 0.6f,
+            AttackForceType.Heavy => Color.red * 0.7f,
+            AttackForceType.Blow => new Color(1f, 0.2f, 0f) * 1f,
+            _ => Color.white * 0.5f
+        };
+
+        var originalColors = new Color[_renderers.Length];
+        for (int i = 0; i < _renderers.Length; i++)
+        {
+            originalColors[i] = _renderers[i].material.GetColor("_EmissionColor");
+            _renderers[i].material.EnableKeyword("_EMISSION");
+            _renderers[i].material.SetColor("_EmissionColor", flashColor);
+        }
+
+        float duration = forceType switch
+        {
+            AttackForceType.Light => 0.05f,
+            AttackForceType.Medium => 0.08f,
+            AttackForceType.Heavy => 0.12f,
+            AttackForceType.Blow => 0.2f,
+            _ => 0.05f
+        };
+        yield return new WaitForSecondsRealtime(duration);
+
+        for (int i = 0; i < _renderers.Length; i++)
+        {
+            if (_renderers[i] != null)
+                _renderers[i].material.SetColor("_EmissionColor", originalColors[i]);
+        }
     }
 
     /// <summary>

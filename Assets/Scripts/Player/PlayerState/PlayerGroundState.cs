@@ -93,26 +93,43 @@ public class PlayerGroundState : PlayerStateBase
         
         if (playerController.lightAttack)
         {
-            Debug.Log("In Ground State: Light Attack Triggered");
-            playerModel.ChangePlayerState(PlayerState.attack,AttackType.light);
+            playerModel.ChangePlayerState(PlayerState.attack, AttackType.light);
             return;
         }
         
         if (playerController.heavyAttack)
         {
             playerModel.ChangePlayerState(PlayerState.attack,AttackType.heavy);
-            return; 
+            return;
         }
-        
+
+        if (playerController.combatArt)
+        {
+            playerModel.ChangePlayerState(PlayerState.attack, AttackType.skill);
+            return;
+        }
+
         if (playerController.defend)
         {
-            playerModel.ChangePlayerState(PlayerState.attack, AttackType.defend);
+            playerModel.ChangePlayerState(PlayerState.guard);
             return;
         }
     }
 
     void OnDodgeButtonPressed()
     {
+        // ★ 确保体力已消耗（同帧幂等，不会重复扣）
+        if (!playerController.TryConsumeDodgeStamina())
+        {
+            playerController.dodge = false;
+            return;
+        }
+
+        // ★ 尝试完美闪避检测
+        var dodgeAbility = playerModel.GetComponent<DodgeAbility>();
+        if (dodgeAbility != null)
+            dodgeAbility.AttemptDodge();
+
         Vector2 moveInput = playerController.movement; // 获取原始的 Vector2 输入
         
         if (moveInput.magnitude < 0.1f)
@@ -122,7 +139,7 @@ public class PlayerGroundState : PlayerStateBase
             return;
         }
         
-        Transform cameraTransform = Camera.main.transform;
+        Transform cameraTransform = PlayerController.Instance?.cameraTransform; if (cameraTransform == null) return;
         Transform playerTransform = playerModel.transform;
         Vector3 camForward = cameraTransform.forward;
         Vector3 camRight = cameraTransform.right;

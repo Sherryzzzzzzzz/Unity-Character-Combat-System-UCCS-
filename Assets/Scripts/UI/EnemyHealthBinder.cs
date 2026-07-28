@@ -13,7 +13,7 @@ using UnityEngine;
 /// - Add this to enemy prefabs (requires AttributeSet on the same GameObject).
 /// - Ensure a HealthBarPool exists in the scene and its prefab points to a valid EnemyWorldHealthBar prefab.
 /// </summary>
-[RequireComponent(typeof(AttributeSet))]
+[DisallowMultipleComponent]
 public class EnemyHealthBinder : MonoBehaviour
 {
     [Tooltip("Optional transform to follow (e.g., head). If null, will follow this.transform)")]
@@ -39,10 +39,14 @@ public class EnemyHealthBinder : MonoBehaviour
 
     private void Awake()
     {
-        attrs = GetComponent<AttributeSet>();
-        if (followTransform == null) followTransform = transform;
+        attrs = GetComponentInParent<AttributeSet>();
+        if (attrs == null)
+            attrs = GetComponentInChildren<AttributeSet>();
+        if (followTransform == null) followTransform = attrs != null ? attrs.transform : transform;
         pool = FindObjectOfType<HealthBarPool>();
         mainCam = Camera.main;
+        if (attrs == null)
+            Debug.LogWarning("EnemyHealthBinder: No AttributeSet found on this enemy hierarchy.", this);
         if (pool == null)
             Debug.LogWarning($"EnemyHealthBinder: No HealthBarPool found in scene. Add one under your UI Canvas.", this);
     }

@@ -27,7 +27,7 @@ public class SoundEventFactory : ITimelineEventFactory
         var effect = evt as SoundEvent;
         var container = new VisualElement();
         
-        var clipField = new ObjectField("Sound Clip")
+        var clipField = new ObjectField("音频剪辑")
         {
             objectType = typeof(AudioClip),
             value = effect.soundClip,
@@ -39,7 +39,7 @@ public class SoundEventFactory : ITimelineEventFactory
         });
         container.Add(clipField);
         
-        var volumeField = new FloatField("Volume")
+        var volumeField = new FloatField("音量")
         {
             value = effect.volume,
             tooltip = "设置音频的播放音量"
@@ -50,7 +50,7 @@ public class SoundEventFactory : ITimelineEventFactory
         });
         container.Add(volumeField);
         
-        var loopField = new Toggle("Loop")
+        var loopField = new Toggle("循环")
         {
             value = effect.loop,
             tooltip = "是否循环"

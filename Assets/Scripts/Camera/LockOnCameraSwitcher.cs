@@ -27,7 +27,7 @@ public class LockOnCameraSwitcher : MonoBehaviour
     [Tooltip("Extra damping applied to the vcam body/aim when locked on. "
            + "Higher = smoother orbit when player rolls past the enemy. "
            + "Prevents the hard camera flip when crossing the target.")]
-    [SerializeField] private float _lockOnDamping = 3f;
+    [SerializeField] private float _lockOnDamping = 1.5f;
     [Tooltip("Damping when NOT locked on (restored from vcam defaults). "
            + "Keep at 0 to leave the vcam's own inspector values untouched.")]
     [SerializeField] private float _defaultDamping = 0f;

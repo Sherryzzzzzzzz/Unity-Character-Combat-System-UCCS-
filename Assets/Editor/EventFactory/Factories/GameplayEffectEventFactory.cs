@@ -16,7 +16,7 @@ public class GameplayEffectEventFactory : ITimelineEventFactory
         if (gasEvt == null) return root;
 
         // GameplayEffect 引用
-        var effectField = new ObjectField("Gameplay Effect")
+        var effectField = new ObjectField("游戏效果")
         {
             objectType = typeof(GameplayEffect),
             allowSceneObjects = false,
@@ -26,7 +26,7 @@ public class GameplayEffectEventFactory : ITimelineEventFactory
         root.Add(effectField);
 
         // EffectTarget 枚举
-        var targetField = new EnumField("Effect Target", gasEvt.effectTarget);
+        var targetField = new EnumField("效果目标", gasEvt.effectTarget);
         root.Add(targetField);
 
         // SearchParameters 容器（仅 AllInRange 时显示）
@@ -65,7 +65,7 @@ public class GameplayEffectEventFactory : ITimelineEventFactory
 
     public static void BuildSearchParametersUI(VisualElement container, SearchParameters sp)
     {
-        var shapeField = new EnumField("Shape", sp.Shape);
+        var shapeField = new EnumField("形状", sp.Shape);
         container.Add(shapeField);
 
         var paramsContainer = new VisualElement();
@@ -77,24 +77,24 @@ public class GameplayEffectEventFactory : ITimelineEventFactory
             switch (sp.Shape)
             {
                 case SearchShape.Circle:
-                    AddFloatField(paramsContainer, "Radius", sp.Radius, v => sp.Radius = v);
+                    AddFloatField(paramsContainer, "半径", sp.Radius, v => sp.Radius = v);
                     break;
                 case SearchShape.Sector:
-                    AddFloatField(paramsContainer, "Radius", sp.Radius, v => sp.Radius = v);
-                    AddFloatField(paramsContainer, "Angle", sp.Angle, v => sp.Angle = v);
+                    AddFloatField(paramsContainer, "半径", sp.Radius, v => sp.Radius = v);
+                    AddFloatField(paramsContainer, "角度", sp.Angle, v => sp.Angle = v);
                     break;
                 case SearchShape.Line:
-                    AddFloatField(paramsContainer, "Length", sp.Length, v => sp.Length = v);
+                    AddFloatField(paramsContainer, "长度", sp.Length, v => sp.Length = v);
                     break;
                 case SearchShape.Rectangle:
-                    AddFloatField(paramsContainer, "Length", sp.Length, v => sp.Length = v);
-                    AddFloatField(paramsContainer, "Width", sp.Width, v => sp.Width = v);
+                    AddFloatField(paramsContainer, "长度", sp.Length, v => sp.Length = v);
+                    AddFloatField(paramsContainer, "宽度", sp.Width, v => sp.Width = v);
                     break;
             }
 
-            AddIntField(paramsContainer, "Max Targets (0=无限)", sp.MaxTargets, v => sp.MaxTargets = v);
+            AddIntField(paramsContainer, "最大目标数 (0=无限)", sp.MaxTargets, v => sp.MaxTargets = v);
 
-            var excludeSelfToggle = new Toggle("Exclude Self") { value = sp.ExcludeSelf };
+            var excludeSelfToggle = new Toggle("排除自身") { value = sp.ExcludeSelf };
             excludeSelfToggle.RegisterValueChangedCallback(e => sp.ExcludeSelf = e.newValue);
             paramsContainer.Add(excludeSelfToggle);
         }

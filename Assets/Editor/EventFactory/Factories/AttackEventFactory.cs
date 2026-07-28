@@ -22,7 +22,7 @@ public class AttackEventFactory : ITimelineEventFactory
         // ==========================
         // HitBox 名称
         // ==========================
-        var hitBoxField = new TextField("HitBox Name")
+        var hitBoxField = new TextField("碰撞盒名称")
         {
             value = atk.hitBoxName
         };
@@ -48,7 +48,7 @@ public class AttackEventFactory : ITimelineEventFactory
         // ==========================
         // AttackData 选择
         // ==========================
-        var attackDataField = new ObjectField("Attack Data")
+        var attackDataField = new ObjectField("攻击数据")
         {
             objectType = typeof(AttackData),
             allowSceneObjects = false,
@@ -89,7 +89,7 @@ public class AttackEventFactory : ITimelineEventFactory
 
             if (atk.attackData.effect != null)
             {
-                var effectLabel = new Label("Gameplay Effect");
+                var effectLabel = new Label("游戏效果");
                 effectLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
                 effectLabel.style.marginTop = 6;
                 attackDataContainer.Add(effectLabel);
@@ -118,30 +118,44 @@ public class AttackEventFactory : ITimelineEventFactory
         });
 
         DrawAttackDataInspector();
-        
-        var originField = new Vector3Field("Preview Origin")
+
+        // ── 攻击检测偏移 ──
+        var offsetHeader = new Label("攻击检测偏移");
+        offsetHeader.style.unityFontStyleAndWeight = FontStyle.Bold;
+        offsetHeader.style.marginTop = 6;
+        offsetHeader.style.marginBottom = 2;
+        container.Add(offsetHeader);
+
+        var useOffsetToggle = new Toggle("启用偏移")
         {
-            value = atk.localOffset
+            value = atk.useLocalOffset,
+            tooltip = "开启后攻击检测球心 = 角色位置 + 旋转后的偏移量"
         };
+        useOffsetToggle.RegisterValueChangedCallback(e => atk.useLocalOffset = e.newValue);
+        container.Add(useOffsetToggle);
 
-        originField.RegisterValueChangedCallback(e =>
+        var originField = new Vector3Field("检测偏移量")
         {
-            atk.localOffset = e.newValue;
-        });
-
+            value = atk.localOffset,
+            tooltip = "攻击检测球心/胶囊体中心的局部空间偏移（相对于角色朝向）"
+        };
+        originField.RegisterValueChangedCallback(e => atk.localOffset = e.newValue);
         container.Add(originField);
 
-        var toggle = new Toggle("Use Preview Origin")
+        if (atk.attackData != null)
         {
-            value = atk.useLocalOffset
-        };
-
-        toggle.RegisterValueChangedCallback(e =>
-        {
-            atk.useLocalOffset = e.newValue;
-        });
-
-        container.Add(toggle);
+            var hitPosField = new Vector3Field("击中位置偏移")
+            {
+                value = atk.attackData.hitPosition,
+                tooltip = "受击者被击中后的击退起点偏移"
+            };
+            hitPosField.RegisterValueChangedCallback(e =>
+            {
+                atk.attackData.hitPosition = e.newValue;
+                EditorUtility.SetDirty(atk.attackData);
+            });
+            container.Add(hitPosField);
+        }
 
         return container;
     }

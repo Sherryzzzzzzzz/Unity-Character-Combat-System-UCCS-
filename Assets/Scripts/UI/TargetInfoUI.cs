@@ -11,6 +11,8 @@ public class TargetInfoUI : MonoBehaviour
     public Text targetNameText;
     public Image targetHealthBar;
     public Text targetHealthText;
+    public Image targetPoiseBar;
+    public Text targetPoiseText;
     public GameObject containerRoot;
 
     [Header("配置")]
@@ -65,13 +67,13 @@ public class TargetInfoUI : MonoBehaviour
         }
 
         // 更新目标血条
-        UpdateTargetHealth();
+        UpdateTargetAttributes();
     }
 
     private void BindTarget(Transform target)
     {
-        _targetAttributes = target.GetComponent<AttributeSet>();
-        _targetASC = target.GetComponent<AbilitySystemComponent>();
+        _targetAttributes = target.GetComponentInParent<AttributeSet>();
+        _targetASC = target.GetComponentInParent<AbilitySystemComponent>();
 
         if (_targetAttributes != null)
             _targetAttributes.OnAttributeChanged += OnTargetAttributeChanged;
@@ -83,10 +85,10 @@ public class TargetInfoUI : MonoBehaviour
 
         // 目标名称
         if (targetNameText != null)
-            targetNameText.text = target.name;
+            targetNameText.text = _targetAttributes != null ? _targetAttributes.name : target.name;
 
         // 初始血条更新
-        UpdateTargetHealth();
+        UpdateTargetAttributes();
     }
 
     private void UnbindTarget()
@@ -98,25 +100,36 @@ public class TargetInfoUI : MonoBehaviour
         _targetASC = null;
     }
 
-    private void UpdateTargetHealth()
+    private void UpdateTargetAttributes()
     {
         if (_targetAttributes == null) return;
 
         float health = _targetAttributes.Health;
         float maxHealth = _targetAttributes.HealthMax;
-        float normalized = maxHealth > 0f ? Mathf.Clamp01(health / maxHealth) : 0f;
+        float normalizedHealth = maxHealth > 0f ? Mathf.Clamp01(health / maxHealth) : 0f;
 
         if (targetHealthBar != null)
-            targetHealthBar.fillAmount = normalized;
+            targetHealthBar.fillAmount = normalizedHealth;
 
         if (targetHealthText != null)
             targetHealthText.text = $"{Mathf.CeilToInt(health)}/{Mathf.CeilToInt(maxHealth)}";
+
+        float poise = _targetAttributes.Poise;
+        float maxPoise = _targetAttributes.PoiseMax;
+        float normalizedPoise = maxPoise > 0f ? Mathf.Clamp01(poise / maxPoise) : 0f;
+
+        if (targetPoiseBar != null)
+            targetPoiseBar.fillAmount = normalizedPoise;
+
+        if (targetPoiseText != null)
+            targetPoiseText.text = $"{Mathf.CeilToInt(poise)}/{Mathf.CeilToInt(maxPoise)}";
     }
 
     private void OnTargetAttributeChanged(GameplayAttribute attr, float oldVal, float newVal)
     {
-        if (attr == GameplayAttribute.Health)
-            UpdateTargetHealth();
+        if (attr == GameplayAttribute.Health || attr == GameplayAttribute.HealthMax ||
+            attr == GameplayAttribute.Poise || attr == GameplayAttribute.PoiseMax)
+            UpdateTargetAttributes();
     }
 
     private void OnDestroy()

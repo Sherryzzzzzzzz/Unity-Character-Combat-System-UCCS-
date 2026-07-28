@@ -1,6 +1,7 @@
 using UnityEngine;
 using System.Collections;
 using UnityEngine.SceneManagement;
+using Animancer;
 
 /// <summary>
 /// Subscribes to AttributeSet.OnDeath and handles player-specific death flow:
@@ -44,8 +45,7 @@ public class PlayerDeathHandler : MonoBehaviour
 
     private void HandleDeath()
     {
-        // Always play death animation if possible and disable local behaviour
-        // Disable input/control
+        // 禁用输入/控制
         if (_playerController != null)
         {
             try { _playerController.enabled = false; }
@@ -58,37 +58,51 @@ public class PlayerDeathHandler : MonoBehaviour
             {
                 _playerModel.InterruptAndDisableBehavior();
 
-                // Try to trigger an Animator "Die" trigger or play a state named "Death" as a best-effort fallback
-                if (_playerModel.animator != null)
+                // 使用 Animancer 播放死亡动画
+                float deathDuration = 2f; // 兜底时间
+                var deathClip = _playerModel.AnimationSet?.death;
+                if (deathClip?.Clip != null)
                 {
-                    var animator = _playerModel.animator;
-                    if (animator.HasState(0, Animator.StringToHash("Death")))
+                    _playerModel.animancer.Play(deathClip, 0.1f, FadeMode.FromStart);
+                    deathDuration = deathClip.Clip.length;
+                }
+                else
+                {
+                    // 兜底：尝试用旧版 Animator 触发 Death
+                    if (_playerModel.animator != null)
                     {
-                        animator.Play("Death");
-                    }
-                    else
-                    {
-                        animator.SetTrigger("Die");
+                        if (_playerModel.animator.HasState(0, Animator.StringToHash("Death")))
+                            _playerModel.animator.Play("Death");
+                        else
+                            _playerModel.animator.SetTrigger("Die");
                     }
                 }
+
+                // 等待动画播放完毕再显示 GameOver
+                if (isPlayer)
+                    StartCoroutine(ShowGameOverAfterDelay(deathDuration));
             }
             catch (System.Exception e)
             {
                 Debug.LogWarning($"PlayerDeathHandler: playing death animation failed: {e}");
+                // 兜底：立即显示 GameOver
+                if (isPlayer)
+                    StartCoroutine(ShowGameOverAfterDelay(0.5f));
             }
         }
-
-        // If this is the player, show Game Over via GameOverManager after a delay
-        if (isPlayer)
+        else if (isPlayer)
         {
-            StartCoroutine(ShowGameOverAfterDelay());
+            // 没有 PlayerModel 时的兜底
+            StartCoroutine(ShowGameOverAfterDelay(0.5f));
         }
     }
 
-    private IEnumerator ShowGameOverAfterDelay()
+    private IEnumerator ShowGameOverAfterDelay(float delay)
     {
-        yield return new WaitForSeconds(showGameOverDelay);
+        yield return new WaitForSeconds(delay);
         var gm = GameOverManager.Instance;
+        if (gm == null)
+            gm = FindObjectOfType<GameOverManager>();
         if (gm != null)
         {
             gm.ShowGameOver();

@@ -16,7 +16,7 @@ public class CooldownEventFactory : ITimelineEventFactory
         if (cdEvt == null) return root;
 
         // Cooldown Effect
-        var effectField = new ObjectField("Cooldown Effect")
+        var effectField = new ObjectField("冷却效果")
         {
             objectType = typeof(GameplayEffect),
             allowSceneObjects = false,
@@ -27,7 +27,7 @@ public class CooldownEventFactory : ITimelineEventFactory
         root.Add(effectField);
 
         // Cooldown Tag
-        var tagField = new ObjectField("Cooldown Tag")
+        var tagField = new ObjectField("冷却标签")
         {
             objectType = typeof(GameplayTagSO),
             allowSceneObjects = false,

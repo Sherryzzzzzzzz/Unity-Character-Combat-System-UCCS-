@@ -47,7 +47,7 @@ public class HitBoxEvent : TimelineEventBase, ITimelineEventRuntime
 
         if (bodyPartTag == null)
         {
-            Debug.LogWarning("HitBoxEvent 未设置 BodyPartTag");
+            // 无 BodyPartTag 时仅设置无敌状态（翻滚/闪避帧用）
             return;
         }
 

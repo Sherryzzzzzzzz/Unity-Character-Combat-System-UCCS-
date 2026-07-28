@@ -10,7 +10,7 @@ using Animancer;
 /// 一个纯粹的“技能播放器”，负责播放技能动画和处理时间轴事件。
 /// 它的更新逻辑由外部系统（如行为树的Action节点）通过调用 ManualUpdate() 来驱动。
 /// </summary>
-public class EnemySkillComponent : MonoBehaviour,IClashable
+public class EnemySkillComponent : MonoBehaviour, IClashable, UCCS.ISkillPlayer
 {
     // --- 外部依赖 ---
     private AnimancerComponent _animancer;
@@ -18,6 +18,13 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
     // --- 内部状态 ---
     private SkillTimelineAsset _currentSkill;
     public bool IsPlaying { get; private set; } = false;
+    /// <summary>当前技能是否包含攻击事件（用于完美闪避检测）</summary>
+    public bool HasActiveAttackEvents { get; private set; } = false;
+    /// <summary>最后一次攻击结束的时间（用于完美闪避宽限期检测）</summary>
+    public float LastAttackEndTime { get; private set; } = -999f;
+    /// <summary>近期是否发动过攻击（完美闪避宽限期）</summary>
+    public bool HasRecentAttack(float windowSeconds = 0.8f) =>
+        Time.time - LastAttackEndTime < windowSeconds;
     private int _currentFrame = 0;
     
     // 【新增】为调试器缓存当前技能资源
@@ -26,6 +33,7 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
     // --- 事件管理 ---
     private readonly Dictionary<int, List<ITimelineEventRuntime>> _frameStartEvents = new Dictionary<int, List<ITimelineEventRuntime>>();
     private readonly Dictionary<int, List<ITimelineEventRuntime>> _frameEndEvents = new Dictionary<int, List<ITimelineEventRuntime>>();
+    private readonly HashSet<ITimelineEventRuntime> _activeEvents = new HashSet<ITimelineEventRuntime>();
 
     public event Action OnSkillEnd;
 
@@ -74,11 +82,12 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
         
         if (IsPlaying)
         {
-            foreach (var evt in _frameEndEvents.Values.SelectMany(v => v))
+            foreach (var evt in _activeEvents)
             {
                 try { evt.OnEnd(gameObject); }
                 catch (Exception e) { Debug.LogError($"Error cleaning up previous OnEnd event: {e}", this); }
             }
+            _activeEvents.Clear();
         }
 
         // --- 重置状态 ---
@@ -95,6 +104,7 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
         }
 
         // --- 从技能资源中注册所有时间轴事件 ---
+        HasActiveAttackEvents = false;
         if (skill.tracks != null)
         {
             foreach (var track in skill.tracks)
@@ -102,6 +112,9 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
                 if (track?.events == null) continue;
                 foreach (var evt in track.events)
                 {
+                    if (evt is AttackEvent)
+                        HasActiveAttackEvents = true;
+
                     if (evt is ITimelineEventRuntime runtimeEvent)
                     {
                         if (!_frameStartEvents.ContainsKey(evt.StartFrame))
@@ -125,7 +138,9 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
             // 【修改】为动画状态注册一个 OnEnd 回调
             state.Events(this).OnEnd = () =>
             {
-                // 在调用原始清理逻辑前，先广播停止消息
+                if (_attackLayer == null || _attackLayer.CurrentState != state)
+                    return;
+
                 SkillDebugManager.ReportSkillStop(this.gameObject);
                 StopAndCleanup();
             };
@@ -162,20 +177,27 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
             // 检查并触发 OnStart 事件
             if (_frameStartEvents.TryGetValue(_currentFrame, out var startEvents))
             {
-                foreach (var evt in startEvents.ToArray())
+                for (int i = startEvents.Count - 1; i >= 0; i--)
                 {
-                    try { evt.OnStart(gameObject); }
+                    var evt = startEvents[i];
+                    try
+                    {
+                        evt.OnStart(gameObject);
+                        _activeEvents.Add(evt);
+                    }
                     catch (Exception e) { Debug.LogError($"Error executing OnStart event: {e}", this); }
                 }
             }
-            
+
             // 检查并触发 OnEnd 事件
             if (_frameEndEvents.TryGetValue(_currentFrame, out var endEvents))
             {
-                foreach (var evt in endEvents.ToArray())
+                for (int i = endEvents.Count - 1; i >= 0; i--)
                 {
+                    var evt = endEvents[i];
                     try { evt.OnEnd(gameObject); }
                     catch (Exception e) { Debug.LogError($"Error executing OnEnd event: {e}", this); }
+                    _activeEvents.Remove(evt);
                 }
             }
         }
@@ -193,15 +215,27 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
         }
 
         if (!IsPlaying) return;
-        
+
+        // ★ 记录攻击结束时间（用于完美闪避宽限期检测）
+        if (HasActiveAttackEvents)
+            LastAttackEndTime = Time.time;
+
+        foreach (var evt in _activeEvents)
+        {
+            try { evt.OnEnd(gameObject); }
+            catch (Exception e) { Debug.LogWarning($"EnemySkillComponent: event OnEnd cleanup threw: {e}", this); }
+        }
+        _activeEvents.Clear();
+
         // 重置内部状态
         IsPlaying = false;
+        HasActiveAttackEvents = false;
         _currentSkill = null;
         _currentFrame = 0;
         _debuggingSkillAsset = null; // 【新增】清理调试器缓存
         _frameStartEvents.Clear();
         _frameEndEvents.Clear();
-        
+
         foreach (var detector in _clashDetectors)
         {
             detector.Deactivate();
@@ -209,7 +243,7 @@ public class EnemySkillComponent : MonoBehaviour,IClashable
 
         // 平滑地隐藏攻击层
         _attackLayer.StartFade(0f, 0.25f);
-        
+
         // 触发 OnSkillEnd 事件，通知行为树或其他系统技能已结束
         OnSkillEnd?.Invoke();
     }

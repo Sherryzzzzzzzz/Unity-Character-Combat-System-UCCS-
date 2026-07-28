@@ -14,9 +14,9 @@ Material:
   m_ValidKeywords: []
   m_InvalidKeywords: []
   m_LightmapFlags: 4
-  m_EnableInstancingVariants: 0
+  m_EnableInstancingVariants: 1
   m_DoubleSidedGI: 0
-  m_CustomRenderQueue: -1
+  m_CustomRenderQueue: 2000
   stringTagMap: {}
   disabledShaderPasses: []
   m_LockedProperties: 
@@ -27,12 +27,13 @@ Material:
     m_Floats:
     - _FadeEnd: 80
     - _FadeStart: 30
-    - _GridSize: 5
-    - _LineWidth: 0.06
+    - _GridDrawDistance: 10
+    - _GridSize: 0.5
+    - _LineWidth: 0.01
     m_Colors:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
-    - _FloorColor: {r: 0.22, g: 0.22, b: 0.22, a: 1}
+    - _FloorColor: {r: 0, g: 0, b: 0, a: 1}
     - _GridColor: {r: 1, g: 1, b: 1, a: 1}
-    - _LineColor: {r: 0.45, g: 0.45, b: 0.45, a: 1}
+    - _LineColor: {r: 0.066037714, g: 0.066037714, b: 0.066037714, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

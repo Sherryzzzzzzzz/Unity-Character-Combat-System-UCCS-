@@ -6,10 +6,10 @@ using Cinemachine;
 [RequireComponent(typeof(CharacterController), typeof(AnimancerComponent))]
 public class HitReactionController : MonoBehaviour
 {
-    public float hitDurationLight = 0.7f;
-    public float hitDurationMedium = 1.0f;
-    public float hitDurationHeavy = 1.5f;
-    public float hitDurationBlow = 3.0f;
+    public float hitDurationLight = 0.5f;
+    public float hitDurationMedium = 0.8f;
+    public float hitDurationHeavy = 1.2f;
+    public float hitDurationBlow = 2.0f;
 
     public float knockbackDuration = 0.25f;
     public AnimationCurve knockbackCurve = AnimationCurve.EaseInOut(0, 1, 1, 0);
@@ -62,6 +62,14 @@ public class HitReactionController : MonoBehaviour
 
     public void PlayHit(AttackEvent hit)
     {
+        // 【防御保护】格挡/防御/翻滚状态下不播放受击动画
+        var playerModel = GetComponent<PlayerModel>();
+        if (playerModel != null && (playerModel.isDefending || playerModel.isDodging))
+        {
+            Debug.Log($"{gameObject.name}: PlayHit blocked - player is defending/dodging", this);
+            return;
+        }
+
         HitStrength incomingStrength = EvaluateStrength(hit);
 
         if (_hitFlowCoroutine != null && incomingStrength <= _currentHitStrength)
@@ -100,7 +108,7 @@ public class HitReactionController : MonoBehaviour
                 enemySkill.StopAndCleanup();
         }
 
-        float duration = GetHitDuration(_currentHitStrength);
+        float duration = GetHitDuration(_currentHitStrength); // 仅作为超时兜底
 
         // ★ 新版 HitStop：使用 HitStopController 独立卡肉（不冻结全局Time.timeScale）
         var hitStop = GetComponent<HitStopController>();
@@ -135,11 +143,11 @@ public class HitReactionController : MonoBehaviour
             feedbackMgr.PlayHitFeedback(hit.attackData.forceType, hitPoint, attackDir);
         }
 
-        // 播动画
+        // 播动画 — 等动画播完才解除硬直
         _hitLayer.SetWeight(1f);
         int dir4 = Resolve4Direction(hit);
         string animName = Compose4DirAnimation(_currentHitStrength, dir4);
-        PlayHitAnimation(animName);
+        var hitState = PlayHitAnimation(animName);
 
         // 相机震动
         if (_impulseSource != null)
@@ -148,18 +156,22 @@ public class HitReactionController : MonoBehaviour
         // 击退
         yield return StartCoroutine(ApplyKnockbackForce(hit));
 
-        yield return new WaitForSeconds(duration);
+        // 等受击动画播完（或超时兜底）
+        float waited = 0f;
+        while (hitState != null && hitState.IsPlaying && waited < duration * 1.1f)
+        {
+            waited += Time.deltaTime;
+            yield return null;
+        }
 
         _hitLayer.StartFade(0f, 0.25f);
         isHitting = false;
-        // Ensure any behavior locks are released (safety): resume if a behavior controller exists
         var behaviorController = GetComponent<Parryable.IBehaviorController>();
         if (behaviorController != null)
         {
             try { behaviorController.ResumeBehavior(); }
             catch (System.Exception e) { Debug.LogWarning($"HitReactionController: ResumeBehavior threw: {e}"); }
         }
-        // Restore player to appropriate state after hit recovery
         var playerModel = GetComponent<PlayerModel>();
         if (playerModel != null)
         {
@@ -255,13 +267,13 @@ public class HitReactionController : MonoBehaviour
     private string Compose4DirAnimation(HitStrength s, int dir)
         => $"{FourDirectionName(dir)}_{StrengthLetter(s)}";
 
-    private void PlayHitAnimation(string name)
+    private AnimancerState PlayHitAnimation(string name)
     {
-        if (animationSet == null) return;
-
+        if (animationSet == null) return null;
         var clip = animationSet.GetClip(name);
         if (clip != null)
-            _hitLayer.Play(clip, 0.1f, FadeMode.FromStart);
+            return _hitLayer.Play(clip, 0.1f, FadeMode.FromStart);
+        return null;
     }
 }
 

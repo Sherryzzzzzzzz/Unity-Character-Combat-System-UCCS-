@@ -14,7 +14,7 @@ public enum PlayerState
     ground,sky,attack,aim,guard
 }
 
-public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorController
+public class PlayerModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorController, UCCS.IDefenseStateProvider
 {
     private StateMachine animationStateMachine;
     private StateMachine playerStateMachine;
@@ -42,6 +42,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public SkillTimelineAsset lightStart;//轻攻击起手式
     public SkillTimelineAsset lightSkyStart;//空中轻攻击起手式
     public SkillTimelineAsset heavyStart;//重攻击起手式
+    public SkillTimelineAsset combatArtStart;//战技起手式
     public SkillTimelineAsset defendStart;//防御起手式
     public SkillTimelineAsset dodgeF;
     public SkillTimelineAsset dodgeB;
@@ -74,6 +75,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public TagComponent tagComponent;
     public GameplayTagSO LightAttackInputTag;
     public GameplayTagSO HeavyAttackInputTag;
+    public GameplayTagSO CombatArtInputTag;
     public GameplayTagSO DefendInputTag;
     
     public float detectRadius = 0.5f; // 检测半径
@@ -81,10 +83,16 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
     public Transform nearestEnemy;   // 当前最近的敌人
     public bool isHitting = false;
     public bool isDefending = false;
+    bool UCCS.IDefenseStateProvider.IsDefending => isDefending;
+    public bool isDodging = false;
     public bool isAiming = false;
 
     [SerializeField] private float maxHitStateDuration = 5f;
     private float _hitStateTimer;
+
+    // 缓存常用引用
+    private HurtBoxManager _hbm;
+    private float _detectTimer;
 
     private void Awake()
     {
@@ -98,6 +106,7 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
         ts = GetComponent<TargetingSystem>();
         wp.Init(GetComponent<AbilitySystemComponent>());
         attributeSet = GetComponent<AttributeSet>();
+        _hbm = GetComponent<HurtBoxManager>();
     }
 
     void Start()
@@ -105,14 +114,19 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
         ChangeAnimationState(PlayerAnimationState.idle);
         ChangePlayerState(PlayerState.ground);
     }
-    
+
     void Update()
     {
         // Always sample sensors so we can decide whether to resume behavior
-        DetectNearestEnemy();
+        // 降频检测敌人（不需要每帧跑 Physics.OverlapSphere）
+        _detectTimer += Time.deltaTime;
+        if (_detectTimer >= 0.3f)
+        {
+            _detectTimer = 0f;
+            DetectNearestEnemy();
+        }
         isAttacking = (pac != null && pac.isPlaying) || _PlayerState == PlayerState.guard;
-        var hbm = GetComponent<HurtBoxManager>();
-        isHitting = (hbm != null) && hbm.isHitting;
+        isHitting = (_hbm != null) && _hbm.isHitting;
 
         // 受击超时安全网
         if (isHitting)
@@ -123,8 +137,8 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
 #if UNITY_EDITOR
                 Debug.LogWarning($"PlayerModel: isHitting 超时 ({_hitStateTimer:F1}s >= {maxHitStateDuration}s)，强制恢复!", this);
 #endif
-                if (hbm != null)
-                    hbm.ForceResetHitState();
+                if (_hbm != null)
+                    _hbm.ForceResetHitState();
                 isHitting = false;
                 _behaviorDisabled = false;
                 _hitStateTimer = 0f;
@@ -188,8 +202,6 @@ public class PlayerModel : MonoBehaviour,IStateOwner, Parryable.IBehaviorControl
 
     public void ChangePlayerState(PlayerState newState, object parameter = null)
     {
-        Debug.Log($"Changing state from {_PlayerState} to {newState}");
-
         switch (newState)
         {
             case PlayerState.ground:

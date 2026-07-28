@@ -21,40 +21,89 @@ public class EffectEvent : TimelineEventBase, ITimelineEventRuntime
     }
     public void OnStart(GameObject target)
     {
-        if (effectPrefab != null)
-        {
-            effectInstance = Object.Instantiate(effectPrefab, target.transform.position + effectPosition, effectRotation);
-            
-            // 如果有粒子系统，播放它
-            ParticleSystem ps = effectInstance.GetComponent<ParticleSystem>();
-            if (ps != null)
-            {
-                ps.Play();
-            }
-        }
+        if (effectPrefab == null) return;
+
+        if (effectInstance != null)
+            DestroyInstance(effectInstance);
+
+        var position = target.transform.TransformPoint(effectPosition);
+        var rotation = target.transform.rotation * effectRotation;
+        effectInstance = Object.Instantiate(effectPrefab, position, rotation);
+        effectInstance.SetActive(true);
+        PlayParticles(effectInstance);
     }
-    
+
     public override TimelineEventBase Clone()
     {
         var newEvent = new EffectEvent();
         newEvent.StartFrame = StartFrame;
         newEvent.EndFrame = EndFrame;
         newEvent.effectPrefab = effectPrefab;
+        newEvent.effectPosition = effectPosition;
+        newEvent.effectRotation = effectRotation;
         return newEvent;
     }
 
     public void OnEnd(GameObject target)
     {
-        if (effectInstance != null)
+        if (effectInstance == null) return;
+
+        var instance = effectInstance;
+        effectInstance = null;
+
+        float destroyDelay = StartFrame == EndFrame
+            ? GetParticleDuration(instance)
+            : StopParticles(instance);
+
+        DestroyInstance(instance, destroyDelay);
+    }
+
+    private static void PlayParticles(GameObject instance)
+    {
+        foreach (var particle in instance.GetComponentsInChildren<ParticleSystem>(true))
         {
-            // 停止粒子系统
-            ParticleSystem ps = effectInstance.GetComponent<ParticleSystem>();
-            if (ps != null)
-            {
-                ps.Stop();
-            }
-            
-            Object.Destroy(effectInstance);
+            particle.Clear(true);
+            particle.Play(true);
+        }
+    }
+
+    private static float StopParticles(GameObject instance)
+    {
+        float destroyDelay = 0f;
+        foreach (var particle in instance.GetComponentsInChildren<ParticleSystem>(true))
+        {
+            var main = particle.main;
+            destroyDelay = Mathf.Max(destroyDelay, GetParticleDuration(main));
+            particle.Stop(true, ParticleSystemStopBehavior.StopEmitting);
+        }
+        return destroyDelay;
+    }
+
+    private static float GetParticleDuration(GameObject instance)
+    {
+        float duration = 0f;
+        foreach (var particle in instance.GetComponentsInChildren<ParticleSystem>(true))
+            duration = Mathf.Max(duration, GetParticleDuration(particle.main));
+        return duration;
+    }
+
+    private static float GetParticleDuration(ParticleSystem.MainModule main)
+    {
+        return main.duration + main.startDelay.constantMax + main.startLifetime.constantMax;
+    }
+
+    private static void DestroyInstance(GameObject instance, float delay = 0f)
+    {
+        if (Application.isPlaying)
+        {
+            if (delay > 0f)
+                Object.Destroy(instance, delay);
+            else
+                Object.Destroy(instance);
+        }
+        else
+        {
+            Object.DestroyImmediate(instance);
         }
     }
 }

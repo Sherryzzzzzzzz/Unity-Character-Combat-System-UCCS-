@@ -39,6 +39,71 @@ public class SkillEditorTimelineWindow : EditorWindow
         wnd.minSize = new Vector2(900, 400);
     }
 
+    public static void OpenSkill(SkillTimelineAsset asset, GameObject previewObject = null)
+    {
+        var wnd = GetWindow<SkillEditorTimelineWindow>();
+        wnd.titleContent = new GUIContent("技能时间轴编辑器");
+        wnd.minSize = new Vector2(900, 400);
+        wnd._isChainPreview = false;
+        wnd.LoadAsset(asset);
+        if (previewObject != null)
+            wnd.SetPreviewObject(previewObject);
+    }
+
+    public static void PlaySkillChain(List<SkillTimelineAsset> skills, GameObject previewObject)
+    {
+        if (skills == null || skills.Count == 0) return;
+        var wnd = GetWindow<SkillEditorTimelineWindow>();
+        wnd.titleContent = new GUIContent("技能时间轴编辑器");
+        wnd.minSize = new Vector2(900, 400);
+        wnd.StartChainPreview(skills, previewObject);
+    }
+
+    private void StartChainPreview(List<SkillTimelineAsset> skills, GameObject previewObject)
+    {
+        _chainSkills = new List<SkillTimelineAsset>(skills);
+        _chainIndex = 0;
+        _isChainPreview = true;
+
+        if (previewObject != null)
+            SetPreviewObject(previewObject);
+
+        if (!AnimationMode.InAnimationMode())
+            AnimationMode.StartAnimationMode();
+
+        PlayCurrentChainSkill();
+    }
+
+    private void PlayCurrentChainSkill()
+    {
+        if (_chainSkills == null || _chainIndex >= _chainSkills.Count)
+        {
+            StopChainPreview();
+            return;
+        }
+
+        var skill = _chainSkills[_chainIndex];
+        LoadAsset(skill);
+        StopPlayback();
+        _currentFrame = 0;
+        JumpToFrame(0);
+        StartPlayback();
+    }
+
+    private void StopChainPreview()
+    {
+        _isChainPreview = false;
+        _chainSkills = null;
+        _chainIndex = 0;
+        StopPlayback();
+    }
+
+    private void SetPreviewObject(GameObject previewObject)
+    {
+        _previewObj = previewObject;
+        _toolbar?.Q<ObjectField>("preview-object-field")?.SetValueWithoutNotify(previewObject);
+    }
+
     private const float TRACK_HEADER_WIDTH = 220f;
     private const float TRACK_HEIGHT = 28f;
     private const float RULER_HEIGHT = 24f;
@@ -83,6 +148,11 @@ public class SkillEditorTimelineWindow : EditorWindow
     //运行时动态查看
     private bool _isInDebugMode = false;
     private SkillTimelineAsset _lastDebugAsset = null;
+
+    // 连招链预览
+    private List<SkillTimelineAsset> _chainSkills;
+    private int _chainIndex;
+    private bool _isChainPreview;
     
     private AudioSource _previewAudioSource;
 
@@ -173,7 +243,7 @@ public class SkillEditorTimelineWindow : EditorWindow
         clipField.RegisterValueChangedCallback(evt => SetAnimationClip(evt.newValue as AnimationClip));
         _toolbar.Add(clipField);
 
-        var objField = new ObjectField("预览对象") { objectType = typeof(GameObject), allowSceneObjects = true, style = { width = 200 } };
+        var objField = new ObjectField("预览对象") { name = "preview-object-field", objectType = typeof(GameObject), allowSceneObjects = true, style = { width = 200 } };
         objField.RegisterValueChangedCallback(evt => _previewObj = evt.newValue as GameObject);
         _toolbar.Add(objField);
         
@@ -209,7 +279,7 @@ public class SkillEditorTimelineWindow : EditorWindow
         _toolbar.Add(new ToolbarButton(ShowLoadTemplateMenu) { text = "加载模板", tooltip = "从模板加载事件到当前轨道" });
 
         var typeField = new EnumField(TimelineEventType.Attack) { style = { width = 100 }};
-        var addTrackBtn = new Button(() => AddTrack((TimelineEventType)typeField.value, $"新轨道 ({typeField.value})")) { text = "添加轨道" };
+        var addTrackBtn = new Button(() => AddTrack((TimelineEventType)typeField.value, $"新轨道 ({GetEventTypeDisplayName((TimelineEventType)typeField.value)})")) { text = "添加轨道" };
         
         _toolbar.Add(typeField); 
         _toolbar.Add(addTrackBtn);
@@ -990,7 +1060,7 @@ public class SkillEditorTimelineWindow : EditorWindow
             var track = _timelines.First(t => t.events.Contains(evt));
 
             // --- 事件类型标题 ---
-            var header = new Label(evt.Type.ToString());
+            var header = new Label(GetEventTypeDisplayName(evt.Type));
             header.style.unityFontStyleAndWeight = FontStyle.Bold;
             header.style.fontSize = 14;
             header.style.marginBottom = 6;
@@ -1091,6 +1161,27 @@ public class SkillEditorTimelineWindow : EditorWindow
     {
         return TimelineTrackRenderer.GetColorByType(type);
     }
+
+    private static string GetEventTypeDisplayName(TimelineEventType type)
+    {
+        return type switch
+        {
+            TimelineEventType.Attack => "攻击",
+            TimelineEventType.HitBox => "碰撞盒",
+            TimelineEventType.Combo => "连招",
+            TimelineEventType.Effect => "特效",
+            TimelineEventType.Sound => "音效",
+            TimelineEventType.Buff => "Buff",
+            TimelineEventType.Loop => "循环",
+            TimelineEventType.Cancel => "取消",
+            TimelineEventType.GASEffect => "GAS 效果",
+            TimelineEventType.GameplayAbility => "游戏技能",
+            TimelineEventType.TargetSearch => "目标搜索",
+            TimelineEventType.Cue => "Cue 标签",
+            TimelineEventType.CooldownTrigger => "冷却触发",
+            _ => type.ToString()
+        };
+    }
     #endregion
     
     #region 播放控制与编辑器更新
@@ -1138,7 +1229,16 @@ public class SkillEditorTimelineWindow : EditorWindow
         _playTimeSec += deltaTime * _playbackSpeed;
         _lastEditorTime = now;
         
-        if (_playTimeSec >= _clip.length) _playTimeSec %= _clip.length;
+        if (_playTimeSec >= _clip.length)
+        {
+            if (_isChainPreview)
+            {
+                _chainIndex++;
+                PlayCurrentChainSkill();
+                return;
+            }
+            _playTimeSec %= _clip.length;
+        }
         if (_playTimeSec < 0) _playTimeSec = 0;
 
         int newFrame = Mathf.FloorToInt((float)(_playTimeSec * _clip.frameRate));

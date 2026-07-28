@@ -18,18 +18,26 @@ public abstract class HealthBarController : MonoBehaviour
 
     protected virtual void Awake()
     {
-        // Find expected child images
         foregroundImage = transform.Find("Foreground")?.GetComponent<Image>();
         backgroundImage = transform.Find("Background")?.GetComponent<Image>();
+
+        if (foregroundImage == null)
+        {
+            var images = GetComponentsInChildren<Image>(true);
+            if (images.Length > 0)
+                foregroundImage = images[0];
+        }
     }
 
     protected virtual void Update()
     {
         if (boundAttributes == null) return;
+
+        float maxHealth = boundAttributes.HealthMax;
         float target = boundAttributes.Health;
-        // smooth interpolation
-        displayedHealth = Mathf.MoveTowards(displayedHealth, target, style.smoothSpeed * Time.deltaTime);
-        UpdateVisuals(displayedHealth / boundAttributes.HealthMax);
+        float smoothSpeed = style != null ? style.smoothSpeed : 1000f;
+        displayedHealth = Mathf.MoveTowards(displayedHealth, target, smoothSpeed * Time.deltaTime);
+        UpdateVisuals(maxHealth > 0f ? displayedHealth / maxHealth : 0f);
     }
 
     public virtual void Bind(AttributeSet attrs)
@@ -37,7 +45,14 @@ public abstract class HealthBarController : MonoBehaviour
         if (boundAttributes != null) Unbind();
         boundAttributes = attrs;
         displayedHealth = attrs.Health;
+        if (foregroundImage != null)
+        {
+            foregroundImage.type = Image.Type.Filled;
+            foregroundImage.fillMethod = Image.FillMethod.Horizontal;
+            foregroundImage.fillOrigin = 0;
+        }
         attrs.OnAttributeChanged += OnAttributeChanged;
+        UpdateVisuals(attrs.HealthMax > 0f ? displayedHealth / attrs.HealthMax : 0f);
     }
 
     public virtual void Unbind()
@@ -56,8 +71,7 @@ public abstract class HealthBarController : MonoBehaviour
     {
         if (attr == GameplayAttribute.Health)
         {
-            // Trigger damage flash if health decreased
-            if (newVal < oldVal)
+            if (newVal < oldVal && style != null)
             {
                 if (flashCoroutine != null) StopCoroutine(flashCoroutine);
                 flashCoroutine = StartCoroutine(DamageFlash());
@@ -67,7 +81,7 @@ public abstract class HealthBarController : MonoBehaviour
 
     private System.Collections.IEnumerator DamageFlash()
     {
-        if (foregroundImage == null) yield break;
+        if (foregroundImage == null || style == null) yield break;
         Color orig = foregroundImage.color;
         foregroundImage.color = style.damageFlashColor;
         yield return new WaitForSeconds(style.flashDuration);

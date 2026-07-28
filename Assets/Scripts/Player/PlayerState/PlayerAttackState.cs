@@ -60,7 +60,7 @@ public class PlayerAttackState : PlayerStateBase
         {
             case AttackType.light: return playerModel.lightStart;
             case AttackType.heavy: return playerModel.heavyStart;
-            case AttackType.skill: return playerModel.lightStart;
+            case AttackType.skill: return playerModel.combatArtStart;
             case AttackType.skyLight: return playerModel.lightSkyStart;
             case AttackType.defend: return playerModel.defendStart;
             default: return null;
@@ -108,6 +108,10 @@ public class PlayerAttackState : PlayerStateBase
         else if (playerController.heavyAttack)
         {
             playerModel.tagComponent.AddTransientTag(playerModel.HeavyAttackInputTag);
+        }
+        else if (playerController.combatArt)
+        {
+            playerModel.tagComponent.AddTransientTag(playerModel.CombatArtInputTag);
         }
         else if (playerController.defend)
         {
@@ -189,8 +193,20 @@ public class PlayerAttackState : PlayerStateBase
     void OnDodgeButtonPressed()
     {
         if (_isDodging) return;
-        
+
+        // ★ 确保体力已消耗（同帧幂等，不会重复扣）
+        if (!playerController.TryConsumeDodgeStamina())
+        {
+            playerController.dodge = false;
+            return;
+        }
+
         _isDodging = true;
+
+        // ★ 尝试完美闪避检测
+        var dodgeAbility = playerModel.GetComponent<DodgeAbility>();
+        if (dodgeAbility != null)
+            dodgeAbility.AttemptDodge();
 
         Vector2 moveInput = playerController.movement;
         
@@ -200,7 +216,7 @@ public class PlayerAttackState : PlayerStateBase
             return; 
         }
 
-        Transform cameraTransform = Camera.main.transform;
+        Transform cameraTransform = PlayerController.Instance?.cameraTransform; if (cameraTransform == null) return;
         Transform playerTransform = playerModel.transform;
         Vector3 camForward = cameraTransform.forward;
         Vector3 camRight = cameraTransform.right;

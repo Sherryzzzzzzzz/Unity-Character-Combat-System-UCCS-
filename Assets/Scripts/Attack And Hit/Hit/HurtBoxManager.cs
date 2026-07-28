@@ -25,6 +25,8 @@ public class HurtBoxManager : MonoBehaviour
     public float blockDamageReduction = 0.8f;
     [Tooltip("格挡时消耗的Poise基础值")]
     public float blockPoiseCostBase = 10f;
+    [Tooltip("格挡时消耗的Stamina（体力）基础值")]
+    public float blockStaminaCostBase = 15f;
     [Tooltip("格挡破防后施加给防御者的硬直效果")]
     public GameplayEffect guardBreakEffect;
     [Tooltip("格挡破防后授予的标签（用于触发硬直动画）")]
@@ -40,9 +42,17 @@ public class HurtBoxManager : MonoBehaviour
     [Tooltip("格挡时相机震动幅度")]
     public float blockCameraShake = 0.3f;
 
+    [Header("受击音效")]
+    [Tooltip("普通受击音效")]
+    public AudioClip hitSound;
+    [Tooltip("重击受击音效（可选，为空则用普通音效）")]
+    public AudioClip heavyHitSound;
+
     [Header("弹反 VFX")]
     [Tooltip("弹反成功时生成的 VFX 预制体")]
     public GameObject parrySuccessVFX;
+    [Tooltip("弹反成功音效")]
+    public AudioClip parrySuccessSound;
 
     private TagComponent _tagComponent;
 
@@ -93,7 +103,16 @@ public class HurtBoxManager : MonoBehaviour
         if (isInvincible)
             return;
 
-        AbilitySystemComponent attackerAscLocal = attackerASC ?? attacker?.GetComponent<AbilitySystemComponent>();
+        // ★ 防御兜底：通过接口检查防御状态，不依赖 PlayerModel
+        var defense = GetComponent<UCCS.IDefenseStateProvider>();
+        if (defense != null && defense.IsDefending)
+        {
+            var defendingAsc = attackerASC ?? attacker?.GetComponent<AbilitySystemComponent>();
+            HandleBlockedHit(hit, attacker, defendingAsc);
+            return;
+        }
+
+        var attackerAscLocal = attackerASC ?? attacker?.GetComponent<AbilitySystemComponent>();
 
         // 弹反 (Parry)
         if (_tagComponent.HasTag(perfectParryTag) ||
@@ -110,6 +129,11 @@ public class HurtBoxManager : MonoBehaviour
                     (transform.position + attacker.transform.position) / 2f : transform.position;
                 Instantiate(parrySuccessVFX, hitPoint, Quaternion.identity);
             }
+
+            // 弹反成功音效
+            if (parrySuccessSound != null && _audioSource != null)
+                _audioSource.PlayOneShot(parrySuccessSound);
+
             return;
         }
 
@@ -171,20 +195,33 @@ public class HurtBoxManager : MonoBehaviour
     private void HandleBlockedHit(AttackEvent hit, GameObject attacker, AbilitySystemComponent attackerAscLocal)
     {
         float poiseCost = blockPoiseCostBase;
+        float staminaCost = blockStaminaCostBase;
         float damage = 0f;
 
-        // 计算减伤后的伤害和 Poise 消耗
+        // 计算减伤后的伤害（含 Defense 减伤）
         if (hit.attackData != null && hit.attackData.effect != null)
         {
-            damage = hit.attackData.effect.damage * (1f - blockDamageReduction);
+            float rawDamage = hit.attackData.effect.damage * hit.attackData.effect.damageMultiplier;
+            float defense = _attributes != null ? _attributes.Defense : 0f;
+            // 格挡减伤后再扣 defense
+            damage = Mathf.Max(1f, (rawDamage * (1f - blockDamageReduction)) - defense * 0.5f);
 
-            // 根据攻击力度调整 Poise 消耗
             poiseCost = hit.attackData.forceType switch
             {
                 AttackForceType.Light => blockPoiseCostBase * 0.5f,
                 AttackForceType.Medium => blockPoiseCostBase * 1.0f,
                 AttackForceType.Heavy => blockPoiseCostBase * 2.0f,
+                AttackForceType.Blow => blockPoiseCostBase * 3.0f,
                 _ => blockPoiseCostBase
+            };
+
+            staminaCost = hit.attackData.forceType switch
+            {
+                AttackForceType.Light => blockStaminaCostBase * 0.5f,
+                AttackForceType.Medium => blockStaminaCostBase * 1.0f,
+                AttackForceType.Heavy => blockStaminaCostBase * 1.5f,
+                AttackForceType.Blow => blockStaminaCostBase * 2.0f,
+                _ => blockStaminaCostBase
             };
         }
 
@@ -192,74 +229,100 @@ public class HurtBoxManager : MonoBehaviour
         if (damage > 0f && _attributes != null)
         {
             _attributes.ModifyHealth(-damage);
-            Debug.Log($"{gameObject.name} blocked! Took {damage:F1} reduced damage ({(1f - blockDamageReduction) * 100f:F0}% bleed-through)");
+            Debug.Log($"{gameObject.name} blocked! Took {damage:F1} dmg (raw={(hit.attackData?.effect?.damage ?? 0f):F0}, blocked={blockDamageReduction*100f:F0}%, defense={_attributes?.Defense ?? 0f:F0})");
         }
 
-        // 2. 消耗防御者 Poise
+        // 2. 消耗防御者 Poise（韧性）
         if (_attributes != null)
         {
             _attributes.ModifyPoise(-poiseCost);
         }
 
-        // 3. 施加 stagger 给攻击者
-        if (hit.attackData != null && hit.attackData.staggerEffect != null)
+        // 2.5. 消耗防御者 Stamina（体力）
+        if (_attributes != null && staminaCost > 0f)
         {
-            var stagger = hit.attackData.staggerEffect;
-            if (attackerAscLocal != null)
+            _attributes.ModifyStamina(-staminaCost);
+        }
+
+        // 3. 攻击者被格挡反制：stagger + 击退
+        if (attackerAscLocal != null)
+        {
+            // 优先使用 AttackData 上配置的 staggerEffect
+            if (hit.attackData != null && hit.attackData.staggerEffect != null)
             {
-                try
+                attackerAscLocal.ApplyGameplayEffect(hit.attackData.staggerEffect, _asc);
+            }
+            else
+            {
+                // Fallback：直接让攻击者硬直（中断当前技能 + 小击退）
+                var attackerSkill = attacker?.GetComponent<PlayerSkillComponent>();
+                if (attackerSkill != null && attackerSkill.isPlaying)
                 {
-                    int handle = attackerAscLocal.ApplyGameplayEffect(stagger, _asc);
-                    if (handle > 0)
-                    {
-                        var attackerTagComp = attackerAscLocal.GetComponent<TagComponent>();
-                        bool alreadyHasStaggerTag = false;
-                        if (attackerTagComp != null && stagger != null)
-                        {
-                            foreach (var granted in stagger.grantedTags)
-                            {
-                                if (granted != null && attackerTagComp.HasTag(granted))
-                                {
-                                    alreadyHasStaggerTag = true;
-                                    break;
-                                }
-                            }
-                        }
-                        if (!alreadyHasStaggerTag)
-                        {
-                            attackerAscLocal.InterruptCurrentAbility();
-                        }
-                    }
+                    attackerSkill.StopAndCleanup(true, false);
                 }
-                catch (System.Exception e)
+                else
                 {
-                    Debug.LogWarning($"HurtBoxManager: applying stagger effect threw: {e}");
+                    var enemySkill = attacker?.GetComponent<EnemySkillComponent>();
+                    enemySkill?.StopAndCleanup();
                 }
             }
+
+            // 击退攻击者
+            var attackerCC = attacker?.GetComponent<CharacterController>();
+            if (attackerCC != null)
+            {
+                Vector3 pushDir = (attacker.transform.position - transform.position).normalized;
+                float pushForce = hit.attackData?.forceType switch
+                {
+                    AttackForceType.Light => 2f,
+                    AttackForceType.Medium => 4f,
+                    AttackForceType.Heavy => 6f,
+                    AttackForceType.Blow => 10f,
+                    _ => 3f
+                };
+                if (_animancer != null)
+                    StartCoroutine(PushBackRoutine(attackerCC, pushDir, pushForce, 0.2f));
+            }
+
+            // 攻击者命中停顿（双向停顿，强化格挡手感）
+            var attackerHitStop = attacker?.GetComponent<HitStopController>();
+            if (attackerHitStop != null && hit.attackData != null)
+                attackerHitStop.ApplyAttackerHitStop(hit.attackData.forceType);
         }
 
         // 4. 检查 Poise 是否耗尽 → 破防
         if (_attributes != null && _attributes.Poise <= 0f && _attributes.IsBroken)
         {
-            // 移除格挡标签
             if (guardingTag != null && _tagComponent != null)
                 _tagComponent.RemoveTag(guardingTag);
 
-            // 施加破防硬直效果
             if (guardBreakEffect != null && _asc != null)
-            {
                 _asc.ApplyGameplayEffect(guardBreakEffect, _asc);
-            }
 
-            // 授予破防标签
             if (guardBreakTag != null && _tagComponent != null)
                 _tagComponent.AddTag(guardBreakTag);
+
+            // 破防冲击波 VFX
+            var pool = UnityEngine.Object.FindFirstObjectByType<GlobalVFXPool>();
+            if (pool != null)
+                pool.SpawnGuardBreakWave(transform.position);
 
             Debug.Log($"{gameObject.name} guard broken! Poise depleted.");
         }
 
-        // 5. 播放格挡反应（动画 + VFX + 音效 + 相机震动）
+        // 5. 播放格挡反应
         PlayBlockReaction(hit, attacker);
+    }
+
+    private System.Collections.IEnumerator PushBackRoutine(CharacterController cc, Vector3 dir, float force, float duration)
+    {
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            cc.Move(dir * force * Time.deltaTime);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
     }
 
     /// <summary>
@@ -291,19 +354,20 @@ public class HurtBoxManager : MonoBehaviour
             _impulseSource.GenerateImpulseWithVelocity(shakeDir * blockCameraShake);
         }
 
-        // 格挡动画（在受击层播放）
+        // 格挡动画（在受击层以低权重混合播放，不覆盖防御动画）
         if (_animancer != null && blockReactionAnimation != null && blockReactionAnimation.Clip != null)
         {
-            int blockLayerIndex = 2; // 与 HitReactionController 使用同一层
+            int blockLayerIndex = 2;
             if (_animancer.Layers.Count <= blockLayerIndex)
                 _animancer.Layers.Count = blockLayerIndex + 1;
 
             var blockLayer = _animancer.Layers[blockLayerIndex];
-            blockLayer.SetWeight(1f);
-            var state = blockLayer.Play(blockReactionAnimation, 0.05f, FadeMode.FromStart);
+            // ★ 使用低权重混合而非完全覆盖（0.35 让格挡反馈可见但不打断防御姿态）
+            blockLayer.SetWeight(0.35f);
+            var state = blockLayer.Play(blockReactionAnimation, 0.03f, FadeMode.FromStart);
             state.Events(this).OnEnd = () =>
             {
-                blockLayer.StartFade(0f, 0.2f);
+                blockLayer.StartFade(0f, 0.15f);
             };
         }
     }
@@ -316,6 +380,19 @@ public class HurtBoxManager : MonoBehaviour
         // 施加伤害
         if (_asc != null && attackerASC != null && hit.attackData != null && hit.attackData.effect != null)
             _asc.ApplyGameplayEffect(hit.attackData.effect, attackerASC);
+
+        // 受击音效
+        if (_audioSource != null)
+        {
+            AudioClip clip = null;
+            if (hit.attackData != null && (hit.attackData.forceType == AttackForceType.Heavy || hit.attackData.forceType == AttackForceType.Blow))
+                clip = heavyHitSound != null ? heavyHitSound : hitSound;
+            else
+                clip = hitSound;
+
+            if (clip != null)
+                _audioSource.PlayOneShot(clip);
+        }
 
         // 受击反应
         hitReactionController?.PlayHit(hit);

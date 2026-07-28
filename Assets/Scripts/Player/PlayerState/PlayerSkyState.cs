@@ -51,8 +51,7 @@ public class PlayerSkyState : PlayerStateBase
 
         if (playerController.lightAttack)
         {
-            Debug.Log("In Sky State: Light Attack Triggered");
-            playerModel.ChangePlayerState(PlayerState.attack,AttackType.skyLight);
+            playerModel.ChangePlayerState(PlayerState.attack, AttackType.skyLight);
             return;
         }
 

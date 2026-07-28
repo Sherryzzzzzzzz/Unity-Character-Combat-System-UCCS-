@@ -81,6 +81,13 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
             var ownerASC = owner.GetComponent<AbilitySystemComponent>();
             if (ownerASC != null)
                 weapon.Init(ownerASC);
+
+            // ★ 激活剑气拖尾
+            var slashTrail = _hitBoxTransform.GetComponent<SlashTrailEffect>();
+            if (slashTrail == null)
+                slashTrail = _hitBoxTransform.gameObject.AddComponent<SlashTrailEffect>();
+            if (attackData != null)
+                slashTrail.Activate(attackData.forceType);
         }
         else
         {
@@ -123,6 +130,11 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
             var weapon = _hitBoxTransform.GetComponent<MeleeWeapon>();
             if (weapon != null)
                 weapon.Deinitialize();
+
+            // ★ 停用剑气拖尾
+            var slashTrail = _hitBoxTransform.GetComponent<SlashTrailEffect>();
+            if (slashTrail != null)
+                slashTrail.Deactivate();
         }
 
         // 清除运行时 Gizmos 可视化
@@ -276,18 +288,16 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
     {
         var hits = Physics.OverlapSphere(center, radius, attackData.hitLayerMask);
 
-        Debug.Log($"[AttackEvent] ExecuteSphere center={center}, radius={radius}, hits={hits.Length}");
-
         foreach (var col in hits)
         {
             var targetASC = col.GetComponentInParent<AbilitySystemComponent>();
             if (targetASC == null || targetASC == ownerASC)
                 continue;
 
-            targetASC.ApplyGameplayEffect(
-                attackData.effect,
-                ownerASC
-            );
+            // 路由到 HurtBoxManager.ProcessHit() — 走格挡/弹反/伤害完整管道
+            var hbm = col.GetComponentInParent<HurtBoxManager>();
+            if (hbm != null)
+                hbm.ProcessHit(this, ownerASC.gameObject, ownerASC);
         }
     }
 
@@ -306,10 +316,9 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
 
             if (angle <= attackData.angle * 0.5f)
             {
-                targetASC.ApplyGameplayEffect(
-                    attackData.effect,
-                    ownerASC
-                );
+                var hbm = col.GetComponentInParent<HurtBoxManager>();
+                if (hbm != null)
+                    hbm.ProcessHit(this, ownerASC.gameObject, ownerASC);
             }
         }
     }
@@ -339,10 +348,9 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
             if (targetASC == null || targetASC == ownerASC)
                 continue;
 
-            targetASC.ApplyGameplayEffect(
-                attackData.effect,
-                ownerASC
-            );
+            var hbm = col.GetComponentInParent<HurtBoxManager>();
+            if (hbm != null)
+                hbm.ProcessHit(this, ownerASC.gameObject, ownerASC);
         }
     }
 

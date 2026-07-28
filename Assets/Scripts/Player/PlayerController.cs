@@ -8,7 +8,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
 {
     public PlayerModel playerModel;
 
-    private Transform cameraTransform;
+    public Transform cameraTransform;
     public float rotationSpeed = 1f;
     
     [HideInInspector]
@@ -29,7 +29,8 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     public bool heavyAttack{ get;private set; }
     public bool defend{ get;private set; }
     public bool defendHeld{ get;private set; }
-    public bool dodge { get;private set; }
+    public bool dodge { get; set; }
+    public bool combatArt { get;private set; }
     public bool aim { get;private set; }
     #endregion
 
@@ -38,10 +39,16 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
     public List<CustomInputAction> inputActions;
     public GameplayAbilitySO dodgeAbilitySO;
     private AbilitySystemComponent asc;
+
+    [Header("Dodge Stamina")]
+    [Tooltip("翻滚消耗的体力值")]
+    public float staminaCostDodge = 20f;
+    private int _dodgeStaminaConsumedFrame = -1;
     
     private InputActionWatcher _inputWatcher;
     public InputActionReference dodgeRunActionRef;
     public InputActionReference attackActionRef;
+    public InputActionReference combatArtActionRef;
     
     private void Awake()
     {
@@ -62,6 +69,7 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
                 attackWatcher.onShortPress.AddListener(() => lightAttack = true);
                 attackWatcher.onLongPressStart.AddListener(() => heavyAttack = true);
             }
+
         }
         else
         {
@@ -79,6 +87,13 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         }
 
         input = new PlayerInputAction();
+
+        // 战技：Q键 / 左扳机（必须在 input 初始化之后才能 FindAction）
+        var combatArtAction = input.FindAction("CombatArt");
+        if (combatArtAction != null)
+            combatArtAction.performed += _ => combatArt = true;
+        else
+            Debug.LogWarning("PlayerController: CombatArt action not found in InputActionAsset");
         cameraTransform = (Camera.main != null) ? Camera.main.transform : null;
         if (cameraTransform == null)
             Debug.LogWarning("PlayerController: Main Camera not found; camera-dependent movement will be disabled");
@@ -169,26 +184,23 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
         aim = input.Simple.Aim.WasPressedThisFrame();
 
         // Dodge input: attempt perfect dodge if player pressed dodge
+        // ★ 注意：状态机(PlayerGroundState/PlayerAttackState)也会处理dodge并调用AttemptDodge
+        // PlayerController只做预检测，不消耗dodge标志
         if (dodge)
         {
-            // Prefer activating configured GameplayAbilitySO via ASC if available
+            // 直接通过 AttributeSet 消耗体力（不再依赖 PlayerHUD UI 组件）
+            if (!TryConsumeDodgeStamina())
+            {
+                dodge = false;
+                return;
+            }
+
             if (asc != null && dodgeAbilitySO != null)
             {
                 asc.ActivateAbility(dodgeAbilitySO.abilityName);
+                dodge = false;
             }
-            else
-            {
-                var dodgeAbility = playerModel.GetComponent<DodgeAbility>();
-                if (dodgeAbility != null)
-                {
-                    bool perfect = dodgeAbility.AttemptDodge();
-                    if (perfect)
-                    {
-                        Debug.Log($"{gameObject.name}: Perfect dodge detected by PlayerController");
-                        // Optionally trigger perfect-dodge visuals/animation here if desired
-                    }
-                }
-            }
+            // else: dodge will be handled by state machine (PlayerGroundState/PlayerAttackState)
         }
         #endregion
         
@@ -196,16 +208,21 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
 
         if (!playerModel.isAttacking)
         {
-            // 摄像机
-            Transform cam = (Camera.main != null) ? Camera.main.transform : null; if (cam == null) return;
+            // 摄像机（Awake 中已缓存）
+            Transform cam = cameraTransform; if (cam == null) return;
 
             // 摄像机的前和右方向（投影到水平面）
             Vector3 camForward = Vector3.Scale(cam.forward, new Vector3(1, 0, 1)).normalized;
             Vector3 camRight = cam.right;
 
+            // deadzone: 过滤摇杆漂移/微小输入
+            Vector2 clampedMovement = movement;
+            if (clampedMovement.magnitude < 0.15f)
+                clampedMovement = Vector2.zero;
+
             // 把输入转换到世界空间
-            Vector3 moveDir = (camForward * movement.y + camRight * movement.x).normalized;
-        
+            Vector3 moveDir = (camForward * clampedMovement.y + camRight * clampedMovement.x).normalized;
+
             playerModel.cc.Move(moveDir * speed * Time.deltaTime);
         }
 
@@ -233,14 +250,42 @@ public class PlayerController : SingletonPatternMonoBase<PlayerController>
             localMovement = playerModel.transform.InverseTransformVector(worldMovement);
         }
         #endregion
-        
-        Debug.Log(isGround);
     }
-    
+
+    /// <summary>
+    /// 尝试消耗翻滚体力。同帧内幂等（多次调用只消耗一次）。
+    /// 供 PlayerController.Update() 和状态机（PlayerGroundState/PlayerAttackState 等）的 OnDodgeButtonPressed() 调用。
+    /// </summary>
+    /// <returns>true 如果体力足够（已消耗或本帧内已消耗过）</returns>
+    public bool TryConsumeDodgeStamina()
+    {
+        // 同帧幂等：本帧已经消耗过，不再重复消耗
+        if (_dodgeStaminaConsumedFrame == Time.frameCount)
+            return true;
+
+        var attrs = playerModel != null ? playerModel.GetComponent<AttributeSet>() : null;
+        if (attrs == null)
+        {
+            // 没有 AttributeSet，允许翻滚（不做体力限制）
+            Debug.LogWarning("[Dodge] 未找到 AttributeSet，跳过体力检查");
+            _dodgeStaminaConsumedFrame = Time.frameCount;
+            return true;
+        }
+
+        if (attrs.TryConsumeStamina(staminaCostDodge))
+        {
+            _dodgeStaminaConsumedFrame = Time.frameCount;
+            return true;
+        }
+
+        return false;
+    }
+
     private void LateUpdate()
     {
         // 重置一帧有效的输入
         dodge = false;
+        combatArt = false;
         lightAttack = false;
         heavyAttack = false;
         defend = false;

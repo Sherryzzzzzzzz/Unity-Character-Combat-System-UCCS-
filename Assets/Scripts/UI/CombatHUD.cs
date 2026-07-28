@@ -62,7 +62,7 @@ public class CombatHUD : SingletonPatternMonoBase<CombatHUD>
         {
             _playerModel = player.GetComponent<PlayerModel>();
             _playerASC = player.GetComponent<AbilitySystemComponent>();
-            _playerAttributes = player.GetComponent<AttributeSet>();
+            _playerAttributes = player.GetComponentInChildren<AttributeSet>();
             _targetingSystem = player.GetComponent<TargetingSystem>();
 
             BindToPlayer();
@@ -74,9 +74,7 @@ public class CombatHUD : SingletonPatternMonoBase<CombatHUD>
         if (quitButton != null)
             quitButton.onClick.AddListener(OnQuitClicked);
 
-        // 初始化 GameOver 管理器引用
-        if (GameOverManager.Instance != null)
-            GameOverManager.Instance.SetGameOverPanel(gameOverPanel);
+        // 初始化 GameOver 管理器引用（面板已在 GameOverManager Inspector 中直接引用）
     }
 
     private void BindToPlayer()
@@ -221,7 +219,5 @@ public class CombatHUD : SingletonPatternMonoBase<CombatHUD>
             _playerAttributes.OnDeath -= OnPlayerDeath;
         }
 
-        if (GameOverManager.Instance != null)
-            GameOverManager.Instance.SetGameOverPanel(null);
     }
 }

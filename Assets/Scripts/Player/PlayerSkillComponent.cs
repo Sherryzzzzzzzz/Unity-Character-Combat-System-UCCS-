@@ -260,9 +260,17 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
         }
 
         isSwitching = true;
-        
+
         var model = GetComponent<PlayerModel>();
-        
+
+        // ★ 标记翻滚/闪避状态（免疫受击）
+        if (model != null &&
+            (skill == model.dodgeF || skill == model.dodgeB ||
+             skill == model.dodgeR || skill == model.dodgeL))
+        {
+            model.isDodging = true;
+        }
+
         currentSkill = skill;
         _debuggingSkillAsset = skill;
         isPlaying = true;
@@ -295,15 +303,23 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
             }
         }
 
+        // ★ 激活拼刀检测器（武器碰撞检测）
+        foreach (var detector in _clashDetectors)
+            detector.Activate();
+
         if (_AttackLayer != null && skill.animationClip != null)
         {
             _AttackAnimation = skill.animationClip;
             float fadeDuration = (model != null && model.isComboChain) ? comboFadeInDuration : attackFadeInDuration;
             var animState = _AttackLayer.Play(_AttackAnimation, fadeDuration, FadeMode.FromStart);
             _AttackLayer.SetWeight(1f);
-            
-            animState.Events(this).OnEnd = skill.animationClip.isLooping ? (Action)null : HandleAnimationEnd;
-            
+
+            animState.Events(this).OnEnd = skill.animationClip.isLooping ? (Action)null : () =>
+            {
+                if (_AttackLayer != null && _AttackLayer.CurrentState == animState)
+                    HandleAnimationEnd();
+            };
+
             maxFrame = Mathf.RoundToInt(animState.Clip.length * animState.Clip.frameRate);
         }
         else
@@ -324,6 +340,10 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
     public void StopAndCleanup(bool clearCache = true, bool triggerDefaultStateChange = true)
     {
         if (!isPlaying) return;
+
+        // ★ 重置翻滚/闪避标记
+        var playerModel = GetComponent<PlayerModel>();
+        if (playerModel != null) playerModel.isDodging = false;
 
         isPlaying = false;
         OnSkillEnd?.Invoke();
@@ -365,7 +385,7 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
             {
                 model.isComboChain = false;
         
-                var playerController = FindObjectOfType<PlayerController>();
+                var playerController = PlayerController.Instance;
                 if (playerController != null && playerController.isGround)
                 {
                     model.ChangePlayerState(PlayerState.ground);

@@ -26,6 +26,7 @@ public class ComboEvent : TimelineEventBase, ITimelineEventRuntime
         newEvent.EndFrame = EndFrame;
         newEvent.RequiredTag = RequiredTag;
         newEvent.nextSkill = nextSkill;
+        newEvent.comboMode = comboMode;
         return newEvent;
     }
     

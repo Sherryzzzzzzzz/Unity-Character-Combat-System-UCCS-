@@ -73,7 +73,9 @@ public enum GameplayAttribute
     HealthMax,
     PoiseMax,
     Health,
-    Poise
+    Poise,
+    StaminaMax,
+    Stamina
 }
 
 /// <summary>

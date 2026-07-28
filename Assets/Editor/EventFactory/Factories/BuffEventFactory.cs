@@ -36,7 +36,7 @@ public class BuffEventFactory : ITimelineEventFactory
             if (buffEvt.useGameplayEffect)
             {
                 // GAS 模式 — 显示 GameplayEffect 字段
-                var effectField = new ObjectField("Gameplay Effect")
+                var effectField = new ObjectField("游戏效果")
                 {
                     objectType = typeof(GameplayEffect),
                     allowSceneObjects = false,
@@ -48,7 +48,7 @@ public class BuffEventFactory : ITimelineEventFactory
             else
             {
                 // 旧模式 — 显示 BuffSO 字段
-                var buffDataField = new ObjectField("Buff Data")
+                var buffDataField = new ObjectField("Buff 数据")
                 {
                     objectType = typeof(BuffSO),
                     value = buffEvt.buffData
@@ -67,12 +67,12 @@ public class BuffEventFactory : ITimelineEventFactory
         RebuildDynamicUI();
 
         // --- 目标类型 ---
-        var targetField = new EnumField("Target", buffEvt.target);
+        var targetField = new EnumField("目标", buffEvt.target);
         targetField.RegisterValueChangedCallback(e => buffEvt.target = (BuffEvent.TargetType)e.newValue);
         root.Add(targetField);
 
         // --- 操作类型 ---
-        var actionField = new EnumField("Action", buffEvt.action);
+        var actionField = new EnumField("操作", buffEvt.action);
         actionField.RegisterValueChangedCallback(e => buffEvt.action = (BuffEvent.ActionType)e.newValue);
         root.Add(actionField);
 

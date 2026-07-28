@@ -15,4 +15,6 @@ public class EnemyAnimationData : MonoBehaviour
     public Vector2 MixerParameter;
     public ClipTransition RunClip;
     public ClipTransition IdleClip;
+    [Header("死亡")]
+    public ClipTransition DeathClip;
 }

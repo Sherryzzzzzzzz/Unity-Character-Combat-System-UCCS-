@@ -6,6 +6,7 @@ Shader "Custom/InfiniteGrid"
         [HDR] _LineColor  ("Grid Line Color", Color) = (0.5, 0.5, 0.5, 1)
         _GridSize  ("Grid Size", Range(0.5, 50)) = 5
         _LineWidth ("Line Width", Range(0.001, 0.3)) = 0.05
+        _GridDrawDistance ("Grid Draw Distance", Range(5, 100)) = 25
         _FadeStart ("Fade Start Distance", Range(0, 200)) = 30
         _FadeEnd   ("Fade End Distance", Range(0, 200)) = 80
     }
@@ -50,6 +51,7 @@ Shader "Custom/InfiniteGrid"
                 float4 _LineColor;
                 float  _GridSize;
                 float  _LineWidth;
+                float  _GridDrawDistance;
                 float  _FadeStart;
                 float  _FadeEnd;
             CBUFFER_END
@@ -67,22 +69,30 @@ Shader "Custom/InfiniteGrid"
             {
                 float3 worldPos = input.positionWS;
 
-                // ---- floor with grid lines on XZ plane ----
-                float2 uv = worldPos.xz / _GridSize;
-                float2 cellFrac  = frac(uv);
+                // ---- distance from camera ----
+                float distToCamera = distance(worldPos, _WorldSpaceCameraPos);
 
-                // distance to nearest cell border [0, 0.5]
-                float2 distToBorder = min(cellFrac, 1.0 - cellFrac);
-                // smooth line: 1 = at border (draw line), 0 = interior (draw floor)
-                float2 ln = 1.0 - smoothstep(0.0, _LineWidth, distToBorder);
-                // use max to prevent additive blending at intersections (no thick corners)
-                float  gridLine = max(ln.x, ln.y);
-                // t=0 → floor color, t=1 → line color
-                float3 color = lerp(_FloorColor.rgb, _LineColor.rgb, gridLine);
+                // ---- fade (world-space for infinite horizon feel) ----
+                float distXZ = length(worldPos.xz);
+                float fade = 1.0 - saturate((distXZ - _FadeStart) / max(_FadeEnd - _FadeStart, 0.01));
 
-                // ---- distance fade for infinite feel ----
-                float dist = length(worldPos.xz);
-                float fade  = 1.0 - saturate((dist - _FadeStart) / max(_FadeEnd - _FadeStart, 0.01));
+                float3 color;
+
+                // ▸ 远离相机 → 跳过格子计算，直接用纯色地板 + fade
+                if (distToCamera > _GridDrawDistance)
+                {
+                    color = _FloorColor.rgb;
+                }
+                else
+                {
+                    // ---- grid lines on XZ plane (仅近处计算) ----
+                    float2 uv = worldPos.xz / _GridSize;
+                    float2 cellFrac  = frac(uv);
+                    float2 distToBorder = min(cellFrac, 1.0 - cellFrac);
+                    float2 ln = 1.0 - smoothstep(0.0, _LineWidth, distToBorder);
+                    float  gridLine = max(ln.x, ln.y);
+                    color = lerp(_FloorColor.rgb, _LineColor.rgb, gridLine);
+                }
 
                 // ---- simple directional light ----
                 Light mainLight = GetMainLight();

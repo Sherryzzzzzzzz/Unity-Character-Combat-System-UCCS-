@@ -15,33 +15,36 @@ public class EnemyWorldHealthBar : HealthBarController
     private RectTransform rectTransform;
     private Canvas parentCanvas;
 
+    private Camera _cachedCam;
+    private CanvasGroup _cachedCG;
+
     protected override void Awake()
     {
         base.Awake();
         rectTransform = GetComponent<RectTransform>();
         parentCanvas = GetComponentInParent<Canvas>();
+        _cachedCam = Camera.main;
+        _cachedCG = GetComponent<CanvasGroup>();
     }
 
     protected override void Update()
     {
         base.Update();
-        if (followTarget == null || Camera.main == null) return;
+        if (followTarget == null || _cachedCam == null) return;
 
         Vector3 worldPos = followTarget.position + Vector3.up * yOffset;
-        Vector3 screenPos = Camera.main.WorldToScreenPoint(worldPos);
+        Vector3 screenPos = _cachedCam.WorldToScreenPoint(worldPos);
 
         bool isInFront = screenPos.z > 0f;
-        float distance = Vector3.Distance(Camera.main.transform.position, followTarget.position);
+        float distance = Vector3.Distance(_cachedCam.transform.position, followTarget.position);
 
         gameObject.SetActive(isInFront && distance <= maxShowDistance);
 
         if (isInFront && parentCanvas != null)
         {
             rectTransform.position = screenPos;
-            // fade by distance
             float alpha = 1f - Mathf.InverseLerp(maxShowDistance, maxShowDistance * 1.5f, distance);
-            var cg = GetComponent<CanvasGroup>();
-            if (cg != null) cg.alpha = alpha;
+            if (_cachedCG != null) _cachedCG.alpha = alpha;
         }
     }
 

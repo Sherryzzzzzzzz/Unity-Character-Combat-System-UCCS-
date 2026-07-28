@@ -15,8 +15,12 @@ public class MeleeWeapon : MonoBehaviour
     private IClashable _ownerClashable;
     private List<Collider> _collidersHitThisSwing;
     private bool _hasClashedThisSwing = false;
-    
+
     private AbilitySystemComponent _ownerASC;
+
+    /// <summary>拼刀宽限期 — 攻击结束后的短时间内仍可触发拼刀</summary>
+    private float _clashGraceTime = -1f;
+    private const float ClashGraceDuration = 0.35f;
 
     public void Init(AbilitySystemComponent ownerASC)
     {
@@ -45,67 +49,93 @@ public class MeleeWeapon : MonoBehaviour
         this._currentAttackEvent = attackEvent;
         _collidersHitThisSwing.Clear();
         _hasClashedThisSwing = false;
+        _clashGraceTime = -1f;
     }
 
     public void Deinitialize()
     {
+        // ★ 攻击结束后仍保留宽限期用于拼刀
+        if (_currentAttackEvent != null)
+            _clashGraceTime = Time.time + ClashGraceDuration;
         this._currentAttackEvent = null;
     }
 
+    /// <summary>是否在拼刀有效窗口内（攻击中或宽限期内）</summary>
+    private bool IsInClashWindow =>
+        _currentAttackEvent != null || Time.time < _clashGraceTime;
+
     private void OnTriggerEnter(Collider other)
     {
-        if (_currentAttackEvent == null) return;
-        
-        // *** 核心修改 1: 在所有逻辑之前，优先进行拼刀检测 ***
-        // 如果本次挥击已经拼过刀，则后续所有检测（包括伤害）都跳过
         if (_hasClashedThisSwing) return;
-        
-        // 检查对方是否也是一个 Weapon
+
+        // ★ 步骤1: 直接武器对武器碰撞 → 拼刀
         if (other.gameObject.layer == WeaponLayer)
         {
             var otherWeapon = other.GetComponent<MeleeWeapon>();
-            if (otherWeapon != null && otherWeapon._currentAttackEvent != null)
+            if (otherWeapon != null && otherWeapon.IsInClashWindow && IsInClashWindow)
             {
-                ClashManager.Instance.ResolveClash(
-                    _ownerClashable,
-                    otherWeapon._ownerClashable
-                );
+                Debug.Log($"[Clash] ✅ 武器碰撞拼刀! {name} vs {other.name}");
+                DoClash(otherWeapon._ownerClashable);
+            }
+            return; // 武器层碰撞不造成伤害
+        }
 
-                _hasClashedThisSwing = true;
-                otherWeapon._hasClashedThisSwing = true;
+        // 未在攻击窗口 → 不处理任何碰撞
+        if (!IsInClashWindow) return;
+
+        // ★ 步骤2: 命中可攻击层 → 先检查目标是否也在攻击中
+        if ((hittableLayers.value & (1 << other.gameObject.layer)) != 0)
+        {
+            if (_collidersHitThisSwing.Contains(other)) return;
+
+            // ★★★ 拼刀优先：目标身上有活跃武器 → 拼刀而非伤害 ★★★
+            var targetRoot = other.transform.root;
+            var targetWeapons = targetRoot.GetComponentsInChildren<MeleeWeapon>();
+            foreach (var tw in targetWeapons)
+            {
+                if (tw != this && tw.IsInClashWindow)
+                {
+                    var otherClashable = tw._ownerClashable;
+                    if (otherClashable != null && _ownerClashable != null)
+                    {
+                        Debug.Log($"[Clash] ✅ 双方攻击中, 转为拼刀! (via body) {name}→{other.name}");
+                        DoClash(otherClashable);
+                        tw._hasClashedThisSwing = true;
+                        return;
+                    }
+                }
             }
 
+            // 普通命中
+            var hurtBoxManager = other.GetComponentInParent<HurtBoxManager>();
+            if (hurtBoxManager != null)
+            {
+                _currentAttackEvent.hitObject = other.gameObject;
+                _currentAttackEvent.hitPoint = other.ClosestPoint(transform.position);
+                hurtBoxManager.ProcessHit(_currentAttackEvent, this.transform.root.gameObject, _ownerASC);
+
+                // 攻击者反馈
+                var attackerRoot = this.transform.root;
+                var attackerHitStop = attackerRoot.GetComponent<HitStopController>();
+                if (attackerHitStop != null && _currentAttackEvent?.attackData != null)
+                    attackerHitStop.ApplyAttackerHitStop(_currentAttackEvent.attackData.forceType);
+
+                if (CameraImpactEffects.Instance != null && _currentAttackEvent?.attackData != null)
+                    CameraImpactEffects.Instance.ApplyFOVKick(_currentAttackEvent.attackData.forceType);
+
+                _collidersHitThisSwing.Add(other);
+            }
+        }
+    }
+
+    private void DoClash(IClashable otherClashable)
+    {
+        if (ClashManager.Instance == null)
+        {
+            Debug.LogError("[Clash] ClashManager.Instance 为空!");
             return;
-
         }
-        
-        if ((hittableLayers.value & (1 << other.gameObject.layer)) == 0) return;
-        
-        if (_collidersHitThisSwing.Contains(other)) return;
-
-        var hurtBoxManager = other.GetComponentInParent<HurtBoxManager>();
-        if (hurtBoxManager != null)
-        {
-            _currentAttackEvent.hitObject = other.gameObject;
-            _currentAttackEvent.hitPoint = other.ClosestPoint(transform.position);
-            hurtBoxManager.ProcessHit(_currentAttackEvent, this.transform.root.gameObject, _ownerASC);
-
-            // ★ 攻击者反馈：轻量卡肉 + 轻微震动
-            var attackerRoot = this.transform.root;
-            var attackerHitStop = attackerRoot.GetComponent<HitStopController>();
-            if (attackerHitStop != null && _currentAttackEvent?.attackData != null)
-                attackerHitStop.ApplyAttackerHitStop(_currentAttackEvent.attackData.forceType);
-
-            // 攻击者相机 FOV Kick
-            if (CameraImpactEffects.Instance != null && _currentAttackEvent?.attackData != null)
-                CameraImpactEffects.Instance.ApplyFOVKick(_currentAttackEvent.attackData.forceType);
-
-            _collidersHitThisSwing.Add(other);
-        }
-        else
-        {
-            Debug.Log("HurtBoxManager not found on " + other.name);
-        }
-
+        _hasClashedThisSwing = true;
+        ClashManager.Instance.ResolveClash(_ownerClashable, otherClashable);
     }
 }

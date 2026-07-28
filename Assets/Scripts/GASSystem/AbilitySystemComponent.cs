@@ -60,7 +60,12 @@ public class AbilitySystemComponent : MonoBehaviour
 
     private void Awake()
     {
-        Attributes = GetComponent<AttributeSet>();
+        if (Attributes == null)
+            Attributes = GetComponent<AttributeSet>();
+        if (Attributes == null)
+            Attributes = GetComponentInParent<AttributeSet>();
+        if (Attributes == null)
+            Attributes = GetComponentInChildren<AttributeSet>();
         tagComponent = GetComponent<TagComponent>();
 
         if (Attributes == null)
@@ -930,18 +935,6 @@ public class AbilitySystemComponent : MonoBehaviour
                 case AttributeModificationType.Override:
                     attrValue.AddModifier(new AttributeModifier(ModifierType.Override, modification.Magnitude));
                     break;
-            }
-        }
-
-        // 处理 Health/Poise 直接修改
-        foreach (var modification in output.Modifications)
-        {
-            if (modification.Type == AttributeModificationType.ModifyBaseValue)
-            {
-                if (modification.Attribute == GameplayAttribute.Health)
-                    Attributes.ModifyHealth(modification.Magnitude);
-                else if (modification.Attribute == GameplayAttribute.Poise)
-                    Attributes.ModifyPoise(modification.Magnitude);
             }
         }
     }

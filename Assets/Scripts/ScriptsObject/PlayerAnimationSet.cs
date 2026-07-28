@@ -13,5 +13,8 @@ public class  PlayerAnimationSet : ScriptableObject
     public ClipTransition sky;
     public ClipTransition MtoI;
     public ClipTransition RtoI;
-    
+
+    [Header("死亡")]
+    public ClipTransition death;
+
 }

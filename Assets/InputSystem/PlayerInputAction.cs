@@ -180,6 +180,15 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""processors"": """",
                     ""interactions"": """",
                     ""initialStateCheck"": true
+                },
+                {
+                    ""name"": ""CombatArt"",
+                    ""type"": ""Button"",
+                    ""id"": ""cc881d31-1a5b-4b22-9e4a-c8b3d12e7f01"",
+                    ""expectedControlType"": ""Button"",
+                    ""processors"": """",
+                    ""interactions"": """",
+                    ""initialStateCheck"": false
                 }
             ],
             ""bindings"": [
@@ -254,7 +263,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""id"": ""84ab0105-16e4-4a51-94aa-cd7b482dc2a9"",
                     ""path"": ""<Gamepad>/leftStick/up"",
                     ""interactions"": """",
-                    ""processors"": """",
+                    ""processors"": ""StickDeadzone"",
                     ""groups"": """",
                     ""action"": ""Move"",
                     ""isComposite"": false,
@@ -265,7 +274,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""id"": ""584bdf70-22bf-4a52-ab36-7c708df8366f"",
                     ""path"": ""<Gamepad>/leftStick/down"",
                     ""interactions"": """",
-                    ""processors"": """",
+                    ""processors"": ""StickDeadzone"",
                     ""groups"": """",
                     ""action"": ""Move"",
                     ""isComposite"": false,
@@ -276,7 +285,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""id"": ""533da4f5-7729-4bc4-971b-97b2671b1e50"",
                     ""path"": ""<Gamepad>/leftStick/left"",
                     ""interactions"": """",
-                    ""processors"": """",
+                    ""processors"": ""StickDeadzone"",
                     ""groups"": """",
                     ""action"": ""Move"",
                     ""isComposite"": false,
@@ -287,7 +296,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""id"": ""cc45b3fa-7b97-4cd9-a396-3556d6b475d7"",
                     ""path"": ""<Gamepad>/leftStick/right"",
                     ""interactions"": """",
-                    ""processors"": """",
+                    ""processors"": ""StickDeadzone"",
                     ""groups"": """",
                     ""action"": ""Move"",
                     ""isComposite"": false,
@@ -446,6 +455,28 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
                     ""action"": ""GamepadXY"",
                     ""isComposite"": false,
                     ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""a1d2e3f4-5b6c-7d8e-9f0a-1b2c3d4e5f6a"",
+                    ""path"": ""<Keyboard>/q"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": ""KeybrodAndMouse"",
+                    ""action"": ""CombatArt"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
+                },
+                {
+                    ""name"": """",
+                    ""id"": ""b2c3d4e5-6f7a-8b9c-0d1e-2f3a4b5c6d7e"",
+                    ""path"": ""<Gamepad>/leftTrigger"",
+                    ""interactions"": """",
+                    ""processors"": """",
+                    ""groups"": """",
+                    ""action"": ""CombatArt"",
+                    ""isComposite"": false,
+                    ""isPartOfComposite"": false
                 }
             ]
         }
@@ -481,6 +512,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
         m_Simple_Dodge = m_Simple.FindAction("Dodge", throwIfNotFound: true);
         m_Simple_Aim = m_Simple.FindAction("Aim", throwIfNotFound: true);
         m_Simple_GamepadXY = m_Simple.FindAction("GamepadXY", throwIfNotFound: true);
+        m_Simple_CombatArt = m_Simple.FindAction("CombatArt", throwIfNotFound: true);
     }
 
     ~@PlayerInputAction()
@@ -571,6 +603,7 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
     private readonly InputAction m_Simple_Dodge;
     private readonly InputAction m_Simple_Aim;
     private readonly InputAction m_Simple_GamepadXY;
+    private readonly InputAction m_Simple_CombatArt;
     /// <summary>
     /// Provides access to input actions defined in input action map "Simple".
     /// </summary>
@@ -622,6 +655,10 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
         /// Provides access to the underlying input action "Simple/GamepadXY".
         /// </summary>
         public InputAction @GamepadXY => m_Wrapper.m_Simple_GamepadXY;
+        /// <summary>
+        /// Provides access to the underlying input action "Simple/CombatArt".
+        /// </summary>
+        public InputAction @CombatArt => m_Wrapper.m_Simple_CombatArt;
         /// <summary>
         /// Provides access to the underlying input action map instance.
         /// </summary>
@@ -678,6 +715,9 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
             @GamepadXY.started += instance.OnGamepadXY;
             @GamepadXY.performed += instance.OnGamepadXY;
             @GamepadXY.canceled += instance.OnGamepadXY;
+            @CombatArt.started += instance.OnCombatArt;
+            @CombatArt.performed += instance.OnCombatArt;
+            @CombatArt.canceled += instance.OnCombatArt;
         }
 
         /// <summary>
@@ -719,6 +759,9 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
             @GamepadXY.started -= instance.OnGamepadXY;
             @GamepadXY.performed -= instance.OnGamepadXY;
             @GamepadXY.canceled -= instance.OnGamepadXY;
+            @CombatArt.started -= instance.OnCombatArt;
+            @CombatArt.performed -= instance.OnCombatArt;
+            @CombatArt.canceled -= instance.OnCombatArt;
         }
 
         /// <summary>
@@ -842,5 +885,12 @@ public partial class @PlayerInputAction: IInputActionCollection2, IDisposable
         /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
         /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
         void OnGamepadXY(InputAction.CallbackContext context);
+        /// <summary>
+        /// Method invoked when associated input action "CombatArt" is either <see cref="UnityEngine.InputSystem.InputAction.started" />, <see cref="UnityEngine.InputSystem.InputAction.performed" /> or <see cref="UnityEngine.InputSystem.InputAction.canceled" />.
+        /// </summary>
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.started" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.performed" />
+        /// <seealso cref="UnityEngine.InputSystem.InputAction.canceled" />
+        void OnCombatArt(InputAction.CallbackContext context);
     }
 }

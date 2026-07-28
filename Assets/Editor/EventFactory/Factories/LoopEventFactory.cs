@@ -26,8 +26,8 @@ public class LoopEventFactory : ITimelineEventFactory
             var targetEventProp = serializedObject.FindProperty("TargetEvent");
             var conditionsProp = targetEventProp.FindPropertyRelative("breakConditions");
             
-            EditorGUILayout.LabelField("Break Conditions", EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox("When all conditions below are met, the loop will break and the animation will continue.", MessageType.Info);
+            EditorGUILayout.LabelField("中断条件", EditorStyles.boldLabel);
+            EditorGUILayout.HelpBox("当以下所有条件满足时，循环将中断并继续播放动画。", MessageType.Info);
             
             // 使用 PropertyField 自动绘制列表，它会自动查找并使用 BranchConditionDrawer
             EditorGUILayout.PropertyField(conditionsProp, true);

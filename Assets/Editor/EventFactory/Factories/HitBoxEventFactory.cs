@@ -23,7 +23,7 @@ public class HitBoxEventFactory : ITimelineEventFactory
         root.style.paddingTop = 4;
 
         // Target Manager
-        var managerField = new ObjectField("Target Manager")
+        var managerField = new ObjectField("目标管理器")
         {
             objectType = typeof(HurtBoxManager),
             allowSceneObjects = true,
@@ -38,7 +38,7 @@ public class HitBoxEventFactory : ITimelineEventFactory
         root.Add(managerField);
 
         // ✅ Body Part Tag 改成 ObjectField
-        var bodyPartField = new ObjectField("Body Part Tag")
+        var bodyPartField = new ObjectField("身体部位标签")
         {
             objectType = typeof(GameplayTagSO),
             allowSceneObjects = false,
@@ -53,14 +53,14 @@ public class HitBoxEventFactory : ITimelineEventFactory
         root.Add(bodyPartField);
 
         // Action
-        var actionField = new EnumField("Action", hb.action);
+        var actionField = new EnumField("动作", hb.action);
         actionField.RegisterValueChangedCallback(e =>
             hb.action = (HitBoxEvent.ActionType)e.newValue);
 
         root.Add(actionField);
 
         // Invincible
-        var invincibleField = new Toggle("Is Invincible")
+        var invincibleField = new Toggle("是否无敌")
         {
             value = hb.isInvincible
         };

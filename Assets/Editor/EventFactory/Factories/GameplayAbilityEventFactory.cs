@@ -16,7 +16,7 @@ public class GameplayAbilityEventFactory : ITimelineEventFactory
         if (abilityEvt == null) return root;
 
         // GameplayAbilitySO reference
-        var abilityField = new ObjectField("Gameplay Ability")
+        var abilityField = new ObjectField("游戏技能")
         {
             objectType = typeof(GameplayAbilitySO),
             allowSceneObjects = false,
@@ -27,7 +27,7 @@ public class GameplayAbilityEventFactory : ITimelineEventFactory
         root.Add(abilityField);
 
         // Event Tag
-        var tagField = new ObjectField("Event Tag")
+        var tagField = new ObjectField("事件标签")
         {
             objectType = typeof(GameplayTagSO),
             allowSceneObjects = false,
@@ -38,7 +38,7 @@ public class GameplayAbilityEventFactory : ITimelineEventFactory
         root.Add(tagField);
 
         // Wait for end toggle
-        var waitToggle = new Toggle("Wait For End")
+        var waitToggle = new Toggle("等待结束")
         {
             value = abilityEvt.waitForEnd
         };

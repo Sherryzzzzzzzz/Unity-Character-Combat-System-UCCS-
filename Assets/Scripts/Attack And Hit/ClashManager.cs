@@ -52,11 +52,19 @@ public class ClashManager : MonoBehaviour
 
         // 播放通用效果
         Vector3 clashPoint = (unitA_GO.transform.position + unitB_GO.transform.position) / 2;
-        if (clashVFX != null) Instantiate(clashVFX, clashPoint, Quaternion.identity);
+        if (clashVFX != null)
+        {
+            var vfx = Instantiate(clashVFX, clashPoint, Quaternion.identity);
+            Destroy(vfx, 2f); // ★ 2秒后自动销毁
+        }
         if (clashSound != null) audioSource.PlayOneShot(clashSound);
 
-        // --- 导演喊“卡！” ---
-        // 1. 命令双方立即冻结动画
+        // --- 导演喊”卡！” ---
+        // 1. 清除双方武器剑气特效
+        SlashTrailEffect.DeactivateAllOn(unitA.GetGameObject());
+        SlashTrailEffect.DeactivateAllOn(unitB.GetGameObject());
+
+        // 2. 命令双方立即冻结动画
         unitA.FreezeAnimation();
         unitB.FreezeAnimation();
 

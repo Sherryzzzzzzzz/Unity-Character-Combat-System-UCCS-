@@ -1,76 +1,87 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
-/// <summary>
-/// Simple singleton manager that shows a Game Over UI (hook to a Canvas prefab or scene UI) and
-/// provides Retry and Quit functions.
-///
-/// Usage: place a GameOverManager in the scene and assign gameOverPanel (a Canvas child or prefab instance).
-/// Call GameOverManager.Instance.ShowGameOver() to display the panel.
-/// </summary>
 public class GameOverManager : MonoBehaviour
 {
     public static GameOverManager Instance { get; private set; }
 
-    [Tooltip("Reference to the Game Over panel GameObject (assign a Canvas child or prefab instance)")]
-    public GameObject gameOverPanel;
+    [Header("死亡 UI")]
+    [Tooltip("死后立即显示的大字")]
+    public Text deathText;
+    [Tooltip("延迟后显示的字")]
+    public Text restartText;
+    [Tooltip("寄字显示多久后出现开始")]
+    public float delay = 1f;
 
-    [Tooltip("Scene name to load when quitting to main menu")]
-    public string mainMenuSceneName = "MainMenu";
-
-    private void Awake()
+    void Awake()
     {
-        if (Instance != null && Instance != this)
-        {
-            Destroy(gameObject);
-            return;
-        }
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
-        // Optionally keep across scenes
-        // DontDestroyOnLoad(gameObject);
 
-        if (gameOverPanel != null)
-            gameOverPanel.SetActive(false);
+        var canvas = GetComponentInParent<Canvas>();
+        if (canvas != null)
+        {
+            if (deathText == null) deathText = CreateText(canvas.transform, "DeathText", "寄", 140, Color.red);
+            if (restartText == null) restartText = CreateText(canvas.transform, "RestartText", "开始", 60, Color.white);
+        }
+
+        if (deathText != null) deathText.gameObject.SetActive(false);
+        if (restartText != null) restartText.gameObject.SetActive(false);
     }
 
-    /// <summary>
-    /// 由 CombatHUD 设置 GameOver 面板引用
-    /// </summary>
-    public void SetGameOverPanel(GameObject panel)
+    Text CreateText(Transform parent, string name, string content, int size, Color color)
     {
-        if (gameOverPanel != null && gameOverPanel.activeSelf)
-            gameOverPanel.SetActive(false);
-        gameOverPanel = panel;
+        var go = new GameObject(name, typeof(Text));
+        go.transform.SetParent(parent, false);
+        var t = go.GetComponent<Text>();
+        t.text = content;
+        t.fontSize = size;
+        t.alignment = TextAnchor.MiddleCenter;
+        t.color = color;
+        t.fontStyle = FontStyle.Bold;
+        t.raycastTarget = false;
+        t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        var rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        return t;
     }
 
     public void ShowGameOver()
     {
-        if (gameOverPanel != null)
-        {
-            gameOverPanel.SetActive(true);
-        }
-        // Pause time optionally
-        Time.timeScale = 0f;
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+        Time.timeScale = 0.0001f; // 几乎暂停但保留 UI 事件处理
+
+        // 先显示"寄"
+        if (deathText != null) deathText.gameObject.SetActive(true);
+
+        // 等 delay 秒后切到"开始"
+        StartCoroutine(ShowRestart());
     }
 
-    public void HideGameOver()
+    System.Collections.IEnumerator ShowRestart()
     {
-        if (gameOverPanel != null)
-            gameOverPanel.SetActive(false);
-        Time.timeScale = 1f;
+        yield return new WaitForSecondsRealtime(delay);
+
+        if (deathText != null) deathText.gameObject.SetActive(false);
+        if (restartText != null)
+        {
+            restartText.gameObject.SetActive(true);
+            // 点击"开始"重试
+            var btn = restartText.GetComponent<Button>() ?? restartText.gameObject.AddComponent<Button>();
+            btn.onClick.RemoveAllListeners();
+            btn.onClick.AddListener(Retry);
+        }
     }
 
     public void Retry()
     {
-        // Resume time in case it was paused
         Time.timeScale = 1f;
         SceneManager.LoadScene(SceneManager.GetActiveScene().name);
-    }
-
-    public void QuitToMainMenu()
-    {
-        Time.timeScale = 1f;
-        if (!string.IsNullOrEmpty(mainMenuSceneName))
-            SceneManager.LoadScene(mainMenuSceneName);
     }
 }
