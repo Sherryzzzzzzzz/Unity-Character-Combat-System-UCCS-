@@ -71,3 +71,23 @@
    - `AttributeSet` 的 `HandleStaminaRecovery`/`HandlePoiseRecovery`（自然恢复）依赖 `Time.deltaTime` 帧循环，未覆盖；
    - `AbilitySystemComponent` 整体未覆盖（MonoBehaviour + 大量外部依赖，非纯逻辑）。
    这些均不影响 EditMode 纯逻辑测试的完整性。
+
+---
+
+## 疑难排查（重要）
+
+### CS0246: 找不到 AttributeSet / GameplayTagSO / TagComponent 等类型
+
+**原因**：Unity 6 (6000.x) 中，asmdef 程序集**不再自动引用**预定义程序集 。
+被测 GAS 类位于 ，因此测试程序集必须显式引用它。
+
+**修复（已内置于本项目）**： 的  数组显式包含：
+
+
+
+> ⚠️ 若日后移动/重命名测试程序集，请保留  引用，否则上述 CS0246 会复现。
+
+### 修改 asmdef 后 Unity 不重新编译
+
+脚本编译报错时 Unity 会挂起编译，后续文件变化不自动触发重编译。
+**切回 Unity 编辑器窗口**（聚焦）即会重新编译；或点击 Console 错误条上的 Clear 后重试。
