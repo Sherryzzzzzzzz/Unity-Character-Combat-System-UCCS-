@@ -6,21 +6,21 @@
 无需进入 Play 模式、无需场景、无帧级依赖（`Update`/`LateUpdate` 均不触发）。
 
 测试程序集：**UCCS.GASTests**（`Assets/Scripts/Tests/`）
+被测程序集：**UCCS.GASCore**（`Assets/Scripts/GASCore/`）
 
-被测文件（只读，未修改）：
+被测文件：
 
 | 被测类 | 源文件 | 覆盖点 |
 |---|---|---|
-| `AttributeValue` | `Assets/Scripts/GASSystem/AttributeValue.cs` | Default/MostPositive/MostNegative 聚合公式、Additive/Multiplicative/Override、StackCount 感知、Dirty 重算、OnPreAttributeChange 钳制、OnValueChanged |
-| `GameplayTagSO` | `Assets/Scripts/ScriptsObject/GameplayTagSO.cs` | 层级 `parentTag`、`HasChild` 祖先链匹配、`GetFullPath` 路径拼接 |
-| `TagComponent` | `Assets/Scripts/GASSystem/TagComponent.cs` | AddTag/RemoveTag 引用计数、ConsumeTag、AddTransientTag 单帧标签、HasTagOrChild 层级匹配、OnTagAdded |
-| `AttributeSet` | `Assets/Scripts/GASSystem/AttributeSet.cs` | Health 死亡事件、Poise 破防/恢复、Stamina 消耗与钳制、属性注册、OnAttributeChanged |
+| `AttributeValue` | `Assets/Scripts/GASCore/AttributeValue.cs` | Default/MostPositive/MostNegative 聚合公式、Additive/Multiplicative/Override、StackCount 感知、Dirty 重算、OnPreAttributeChange 钳制、OnValueChanged |
+| `GameplayTagSO` | `Assets/Scripts/GASCore/GameplayTagSO.cs` | 层级 `parentTag`、`HasChild` 祖先链匹配、`GetFullPath` 路径拼接 |
+| `TagComponent` | `Assets/Scripts/GASCore/TagComponent.cs` | AddTag/RemoveTag 引用计数、ConsumeTag、AddTransientTag 单帧标签、HasTagOrChild 层级匹配、OnTagAdded |
+| `AttributeSet` | `Assets/Scripts/GASCore/AttributeSet.cs` | Health 死亡事件、Poise 破防/恢复、Stamina 消耗与钳制、属性注册、OnAttributeChanged |
 
 ## 如何运行（Unity Test Runner）
 
 1. 用 Unity 6000.1.9f1 打开工程（`com.unity.test-framework` 1.5.1 已在 `Packages/manifest.json` 中）。
 2. 菜单 **Window > General > Test Runner** 打开测试运行器。
-   > 打开 Test Runner 会自动定义 `UNITY_INCLUDE_TESTS`，测试程序集随之编译。
 3. 选择 **EditMode** 选项卡。
 4. 点击 **Run All** 运行全部 EditMode 测试；
    或在左侧列表展开 **UCCS.GASTests** 程序集，单独运行某个测试文件 / 单条用例。
@@ -38,61 +38,65 @@
 | `AttributeSetTests.cs` | 14 | 属性集事件 / 消耗 / 钳制 |
 | **合计** | **56** | |
 
-## 程序集配置说明（UCCS.GASTests.asmdef）
+## 程序集结构（重要）
 
-- **Editor 平台**（`includePlatforms: ["Editor"]`），勾选 **Test Assemblies** 等效配置：
-  - `references`: `UnityEngine.TestRunner`、`UnityEditor.TestRunner`、`Assembly-CSharp`
-  - `precompiledReferences`: `nunit.framework.dll`（Unity 官方以 `overrideReferences: true` + 该预编译引用识别测试程序集）
-- **未设置** `No Engine References`——测试需要 UnityEngine API（`GameObject`、`AddComponent`、`ScriptableObject.CreateInstance`、`Mathf`）。
-- ⚠️ **Unity 6 (6000.x) 中 asmdef 不再自动引用预定义程序集 `Assembly-CSharp`**，
-  因此 `references` 必须**显式**包含 `Assembly-CSharp`（被测 GAS 类所在程序集）。
-  若日后移动/重命名测试程序集，请保留该引用，否则出现 CS0246。
+```
+┌─────────────────────────────────────────────────┐
+│ UCCS.GASCore.asmdef (autoReferenced: true)      │  ← 被测代码（纯逻辑）
+│   AttributeValue / AttributeModifier /          │
+│   AttributeSet / TagComponent /                 │
+│   GameplayTagSO / BuffSO /                      │
+│   UCCS.IAttributeProvider / UCCS.IPlayerMarker /│
+│   UCCS.IStackCountSource                        │
+└──────────────────────┬──────────────────────────┘
+                       │ autoReferenced（Assembly-CSharp 自动引用）
+┌──────────────────────▼──────────────────────────┐
+│ Assembly-CSharp（预定义程序集，其余全部脚本）     │
+└──────────────────────┬──────────────────────────┘
+                       │ references: ["UCCS.GASCore"]
+┌──────────────────────▼──────────────────────────┐
+│ UCCS.GASTests.asmdef (TestAssemblies, Editor)   │
+│   3 个测试文件（56 用例）                        │
+└─────────────────────────────────────────────────┘
+```
+
+### 为什么被测代码要独立 asmdef？
+
+**Unity 6 (6000.x) 中，asmdef 程序集无法引用预定义程序集 `Assembly-CSharp`**
+（实测编译参数 rsp 中无 Assembly-CSharp 引用；`references` 显式写也会被忽略）。
+因此测试程序集若要访问 GAS 类，这些类必须位于**自己的 asmdef 程序集**中。
+`UCCS.GASCore` 即为此创建：`autoReferenced: true` 使 Assembly-CSharp 自动引用它，
+原有代码无需任何改动即可继续使用这些类型。
+
+### 解耦设计（保证 GASCore 不反向依赖 Assembly-CSharp）
+
+| 原依赖 | 解耦方式 |
+|---|---|
+| `AttributeModifier.Source: ActiveGameplayEffect` | 改为接口 `UCCS.IStackCountSource`（`ActiveGameplayEffect` 实现） |
+| `AttributeSet : UCCS.IAttributeProvider` | 接口移入 GASCore（`Interfaces.cs` 保留其余接口） |
+| `AttributeSet.Awake` 检测 `PlayerModel` | 改为 `UCCS.IPlayerMarker`（`PlayerModel` 实现该接口） |
 
 ## 实现要点 / 注意事项
 
 1. **AttributeSet 的初始化方式**：EditMode 下 MonoBehaviour 的 `Awake`/`Start` 不会自动执行。
-   测试使用公开 API `RegisterAttribute(...)` 建立属性字典（与 `Awake` 逻辑一致：
-   注册 `OnValueChanged`/`OnPreAttributeChange` 回调 + 非负钳制）。
-   这样既避免依赖生命周期，也避免触发 `Awake` 中的 `CompareTag("Player")`
-   （`Player` 未在 `ProjectSettings/TagManager.asset` 注册，调用会输出报错日志）。
-
+   测试使用公开 API `RegisterAttribute(...)` 建立属性字典（与 `Awake` 逻辑一致）。
 2. **GameplayTagSO.HasChild 语义**：实现沿 `otherTag.parentTag` 链向上查找 `this`
-   （即"`this` 是否是 `otherTag` 的祖先"）。因此在**无循环引用**时 `HasChild(自身)` 返回
-   `false`；`HasChild(子标签)` 返回 `true`；`HasChild(无关标签)` 返回 `false`。
-   测试按实现的实际行为断言（`HasChild_Self_ReturnsFalseWithoutCycle`），
-   未构造 `parentTag` 自环等病态结构（会令 `GetFullPath` 死循环）。
-
-3. **StackCount 测试**：通过 `ScriptableObject.CreateInstance<GameplayEffect>()` +
-   `new ActiveGameplayEffect(ge, null)` + `AddStack()` 构造带 `Source` 的修改器，
-   验证 `effectiveValue = value × Source.CurrentStacks`。
-
+   （即"`this` 是否是 `otherTag` 的祖先"）。无循环引用时 `HasChild(自身)` 返回 `false`。
+3. **StackCount 测试**：使用 `FakeStackSource : UCCS.IStackCountSource` 轻量假实现
+   （初始层数 + `AddStack()`），不再依赖 `ActiveGameplayEffect`/`GameplayEffect`。
 4. **未覆盖（依赖过重/超出纯逻辑范围）**：
-   - `TagComponent` 的 Buff 系统（`ApplyBuff`/`RemoveBuff`）依赖 `BuffSO` 资产与帧级 `Update` Tick，未覆盖；
-   - `Update`/`LateUpdate` 中的缓存标签过期清理、瞬态标签清空逻辑属帧级行为，未覆盖；
-   - `AttributeSet` 的 `HandleStaminaRecovery`/`HandlePoiseRecovery`（自然恢复）依赖 `Time.deltaTime` 帧循环，未覆盖；
+   - `TagComponent` 的 Buff 系统（`ApplyBuff`/`RemoveBuff`）依赖 `BuffSO` 资产与帧级 `Update` Tick；
+   - `Update`/`LateUpdate` 中的缓存标签过期清理、瞬态标签清空逻辑属帧级行为；
+   - `AttributeSet` 的 `HandleStaminaRecovery`/`HandlePoiseRecovery`（自然恢复）依赖 `Time.deltaTime` 帧循环；
    - `AbilitySystemComponent` 整体未覆盖（MonoBehaviour + 大量外部依赖，非纯逻辑）。
-   这些均不影响 EditMode 纯逻辑测试的完整性。
 
----
-
-## 疑难排查（重要）
+## 疑难排查
 
 ### CS0246: 找不到 AttributeSet / GameplayTagSO / TagComponent 等类型
 
-**原因**：Unity 6 (6000.x) 中，asmdef 程序集**不再自动引用**预定义程序集 `Assembly-CSharp`。
-被测 GAS 类位于 `Assembly-CSharp`，因此测试程序集必须显式引用它。
-
-**修复（已内置于本项目）**：`UCCS.GASTests.asmdef` 的 `references` 数组显式包含：
-
-```json
-"references": [
-    "UnityEngine.TestRunner",
-    "UnityEditor.TestRunner",
-    "Assembly-CSharp"
-]
-```
-
-> ⚠️ 若日后移动/重命名测试程序集，请保留 `Assembly-CSharp` 引用，否则上述 CS0246 会复现。
+确认 `UCCS.GASTests.asmdef` 的 `references` 包含 `"UCCS.GASCore"`，且
+`UCCS.GASCore.asmdef` 的 `autoReferenced` 为 `true`。若 GASCore 被移动/改名，
+同步更新 references。
 
 ### 修改 asmdef 后 Unity 不重新编译
 
