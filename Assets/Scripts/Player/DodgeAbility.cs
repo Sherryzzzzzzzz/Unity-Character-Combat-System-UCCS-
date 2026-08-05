@@ -1,6 +1,5 @@
 using System.Collections;
 using UnityEngine;
-using Animancer;
 
 /// <summary>
 /// DodgeAbility — 完美闪避检测 + 时间减速特效
@@ -25,10 +24,7 @@ public class DodgeAbility : MonoBehaviour
     [Tooltip("GameplayTag to add on perfect dodge")]
     public GameplayTagSO perfectDodgeTag;
 
-    [Tooltip("Optional GameplayEffect for perfect dodge")]
-    public GameplayEffect perfectDodgeSelfEffect;
-
-    [Header("Time Slow Effect")]
+    [Header("Time Slow Effect (由 HurtBoxManager.HandlePerfectDodge 触发)")]
     [Tooltip("完美闪避时动画速度降到多少（0.15 = 15%速度）")]
     public float slowMotionSpeed = 0.15f;
     [Tooltip("时间减速持续秒数")]
@@ -36,28 +32,18 @@ public class DodgeAbility : MonoBehaviour
     [Tooltip("减速恢复的渐变时间")]
     public float slowMotionRecoveryTime = 0.3f;
 
-    [Header("Cooldown")]
-    [Tooltip("完美闪避冷却时间（防止连发）")]
-    public float perfectDodgeCooldown = 1.5f;
-
     [Header("Audio")]
     [Tooltip("完美闪避音效")]
     public AudioClip perfectDodgeSound;
 
-    private float _lastPerfectDodgeTime = -999f;
     private Coroutine _tagRemovalCoroutine;
-    private Coroutine _slowMotionCoroutine;
 
     private TagComponent _tagComponent;
-    private AbilitySystemComponent _asc;
-    private AnimancerComponent _animancer;
     private AudioSource _audioSource;
 
     private void Awake()
     {
         _tagComponent = GetComponent<TagComponent>();
-        _asc = GetComponent<AbilitySystemComponent>();
-        _animancer = GetComponent<AnimancerComponent>();
         _audioSource = GetComponent<AudioSource>();
         if (_audioSource == null)
             _audioSource = gameObject.AddComponent<AudioSource>();
@@ -67,27 +53,34 @@ public class DodgeAbility : MonoBehaviour
     }
 
     /// <summary>
-    /// 玩家按下闪避时调用。返回值表示是否是完美闪避。
+    /// 玩家按下闪避时调用。
+    /// ★ 改为：闪避即授予完美闪避候选标签（受击瞬间由 HurtBoxManager 判定），
+    ///   不再依赖"闪避按下瞬间"的敌人扫描——否则敌人攻击判定帧在闪避开始之后时无法触发。
     /// </summary>
     public bool AttemptDodge()
     {
-        // 冷却检查
-        if (Time.time - _lastPerfectDodgeTime < perfectDodgeCooldown)
-        {
-            Debug.Log($"[DodgeAbility] 冷却中: {Time.time - _lastPerfectDodgeTime:F2}s / {perfectDodgeCooldown}s");
-            return false;
-        }
+        GrantPerfectDodgeTag();
 
-        Debug.Log($"[DodgeAbility] 开始检测... enemyLayer={enemyLayer.value}, radius={detectionRadius}");
+        // 即时反馈（可选增强）：敌人正在/近期攻击 → 提前播放完美闪避音效预告
+        if (perfectDodgeSound != null && _audioSource != null && IsEnemyAttackInRange())
+            _audioSource.PlayOneShot(perfectDodgeSound);
 
-        if (IsEnemyAttackInRange())
+        return true;
+    }
+
+    /// <summary>
+    /// 授予完美闪避候选标签（持续 perfectDodgeTagDuration 秒）。
+    /// 该窗口内被敌人攻击命中 = 完美闪避（慢动作 + 惩罚由 HurtBoxManager.HandlePerfectDodge 执行）。
+    /// </summary>
+    private void GrantPerfectDodgeTag()
+    {
+        if (_tagComponent != null && perfectDodgeTag != null)
         {
-            _lastPerfectDodgeTime = Time.time;
-            OnPerfectDodge();
-            return true;
+            _tagComponent.AddTag(perfectDodgeTag);
+            if (_tagRemovalCoroutine != null)
+                StopCoroutine(_tagRemovalCoroutine);
+            _tagRemovalCoroutine = StartCoroutine(RemoveTagAfterDelay(perfectDodgeTagDuration));
         }
-        Debug.Log("[DodgeAbility] 附近没有正在攻击的敌人");
-        return false;
     }
 
     /// <summary>
@@ -99,120 +92,22 @@ public class DodgeAbility : MonoBehaviour
             enemyLayer = LayerMask.GetMask("Enemy");
 
         Collider[] hits = Physics.OverlapSphere(transform.position, detectionRadius, enemyLayer);
-        Debug.Log($"[DodgeAbility] OverlapSphere 找到 {hits.Length} 个敌人 (layer={enemyLayer.value})");
 
         foreach (var hit in hits)
         {
             var esc = hit.GetComponentInParent<EnemySkillComponent>();
             if (esc == null)
-            {
-                Debug.Log($"[DodgeAbility] {hit.name}: 无EnemySkillComponent");
                 continue;
-            }
-
-            Debug.Log($"[DodgeAbility] {esc.name}: IsPlaying={esc.IsPlaying}, HasActiveAttack={esc.HasActiveAttackEvents}, RecentAttack={esc.HasRecentAttack(recentAttackWindow)}(window={recentAttackWindow}s, lastEnd={esc.LastAttackEndTime:F1})");
 
             // 1) 敌人正在攻击
             if (esc.IsPlaying && esc.HasActiveAttackEvents)
-            {
-                Debug.Log("[DodgeAbility] ✅ 完美闪避! (敌人攻击中)");
                 return true;
-            }
 
-            // 2) ★ 宽限期：敌人近期攻击过（刚收招也能触发完美闪避）
+            // 2) 宽限期：敌人近期攻击过（刚收招也能触发完美闪避）
             if (esc.HasRecentAttack(recentAttackWindow))
-            {
-                Debug.Log($"[DodgeAbility] ✅ 完美闪避! (宽限期: {Time.time - esc.LastAttackEndTime:F2}s前攻击)");
                 return true;
-            }
         }
         return false;
-    }
-
-    private void OnPerfectDodge()
-    {
-        Debug.Log($"{gameObject.name}: Perfect Dodge!");
-
-        // 0) 音效
-        if (perfectDodgeSound != null && _audioSource != null)
-            _audioSource.PlayOneShot(perfectDodgeSound);
-
-        // 1) 时间减速（动画层减速，不影响全局 Time.timeScale）
-        if (_slowMotionCoroutine != null)
-            StopCoroutine(_slowMotionCoroutine);
-        _slowMotionCoroutine = StartCoroutine(SlowMotionRoutine());
-
-        // 2) 相机 FOV Kick
-        if (CameraImpactEffects.Instance != null)
-            CameraImpactEffects.Instance.ApplyFOVKick(AttackForceType.Medium);
-
-        // 3) 完美闪避 VFX
-        var pool = UnityEngine.Object.FindFirstObjectByType<GlobalVFXPool>();
-        if (pool != null)
-            pool.SpawnPerfectDodgeVFX(transform.position);
-
-        // 4) 防御者 Tag
-        if (_tagComponent != null && perfectDodgeTag != null)
-        {
-            _tagComponent.AddTag(perfectDodgeTag);
-            if (_tagRemovalCoroutine != null)
-                StopCoroutine(_tagRemovalCoroutine);
-            _tagRemovalCoroutine = StartCoroutine(RemoveTagAfterDelay(perfectDodgeTagDuration));
-        }
-
-        // 5) 可选 GameplayEffect
-        if (perfectDodgeSelfEffect != null && _asc != null)
-        {
-            int handle = _asc.ApplyGameplayEffect(perfectDodgeSelfEffect, _asc);
-            Debug.Log($"{gameObject.name}: Applied perfectDodgeSelfEffect handle={handle}");
-        }
-    }
-
-    /// <summary>
-    /// 动画层减速 + 渐变恢复
-    /// </summary>
-    private IEnumerator SlowMotionRoutine()
-    {
-        var savedSpeeds = new System.Collections.Generic.List<(AnimancerLayer layer, float speed)>();
-        if (_animancer != null)
-        {
-            for (int i = 0; i < _animancer.Layers.Count; i++)
-            {
-                var layer = _animancer.Layers[i];
-                var state = layer.CurrentState;
-                if (state != null && state.Speed > 0.01f)
-                {
-                    savedSpeeds.Add((layer, state.Speed));
-                    state.Speed = slowMotionSpeed;
-                }
-            }
-        }
-
-        yield return new WaitForSecondsRealtime(slowMotionDuration);
-
-        float elapsed = 0f;
-        while (elapsed < slowMotionRecoveryTime)
-        {
-            elapsed += Time.unscaledDeltaTime;
-            float t = elapsed / slowMotionRecoveryTime;
-            float currentTarget = Mathf.Lerp(slowMotionSpeed, 1f, t);
-            foreach (var (layer, _) in savedSpeeds)
-            {
-                var state = layer.CurrentState;
-                if (state != null)
-                    state.Speed = currentTarget;
-            }
-            yield return null;
-        }
-
-        foreach (var (layer, originalSpeed) in savedSpeeds)
-        {
-            var state = layer.CurrentState;
-            if (state != null)
-                state.Speed = originalSpeed;
-        }
-
-        _slowMotionCoroutine = null;
     }
 
     private IEnumerator RemoveTagAfterDelay(float delay)

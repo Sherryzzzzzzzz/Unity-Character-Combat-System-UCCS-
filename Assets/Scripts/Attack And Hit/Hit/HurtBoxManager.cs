@@ -124,8 +124,14 @@ public class HurtBoxManager : MonoBehaviour
 
     public void ProcessHit(AttackEvent hit, GameObject attacker, AbilitySystemComponent attackerASC = null)
     {
+        // ★ 完美闪避：闪避无敌帧期间被命中 → 慢动作 + 惩罚攻击者（不产生伤害）
+        //   放在 isInvincible 短路之前，否则闪避动画的无敌帧会吞掉完美闪避判定
         if (isInvincible)
+        {
+            if (perfectDodgeTag != null && _tagComponent.HasTag(perfectDodgeTag))
+                HandlePerfectDodge(hit, attacker, attackerASC);
             return;
+        }
 
         // ★ 防御兜底：通过接口检查防御状态，不依赖 PlayerModel
         var defense = GetComponent<UCCS.IDefenseStateProvider>();
@@ -161,41 +167,7 @@ public class HurtBoxManager : MonoBehaviour
         // 完美闪避 (Perfect Dodge)
         if (perfectDodgeTag != null && _tagComponent.HasTag(perfectDodgeTag))
         {
-            if (hit.attackData != null && hit.attackData.perfectDodgePunishEffect != null)
-            {
-                var punish = hit.attackData.perfectDodgePunishEffect;
-                if (attackerAscLocal != null)
-                {
-                    try
-                    {
-                        int handle = attackerAscLocal.ApplyGameplayEffect(punish, _asc);
-                        if (handle > 0)
-                        {
-                            var attackerTagComp = attackerAscLocal.GetComponent<TagComponent>();
-                            bool alreadyHasPunishTag = false;
-                            if (attackerTagComp != null && punish != null)
-                            {
-                                foreach (var granted in punish.grantedTags)
-                                {
-                                    if (granted != null && attackerTagComp.HasTag(granted))
-                                    {
-                                        alreadyHasPunishTag = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if (!alreadyHasPunishTag)
-                                attackerAscLocal.InterruptCurrentAbility();
-                        }
-                    }
-                    catch (System.Exception e)
-                    {
-                        Debug.LogWarning($"HurtBoxManager: applying perfect-dodge punish effect threw: {e}");
-                    }
-                }
-            }
-
+            HandlePerfectDodge(hit, attacker, attackerAscLocal);
             return;
         }
 
@@ -479,6 +451,64 @@ public class HurtBoxManager : MonoBehaviour
         // 弹反成功音效
         if (parrySuccessSound != null && _audioSource != null)
             _audioSource.PlayOneShot(parrySuccessSound);
+    }
+
+    /// <summary>
+    /// 完美闪避：闪避无敌帧被命中 → 慢动作 + 惩罚攻击者 + 特效反馈（鬼泣式）。
+    /// </summary>
+    private void HandlePerfectDodge(AttackEvent hit, GameObject attacker, AbilitySystemComponent attackerAscLocal)
+    {
+        // 1. 慢动作（时间冻结回弹）
+        TimeScaleDirector.Instance.DoSlowMotion(0.15f, 0.15f, restoreImmediately: false);
+
+        // 2. 完美闪避 VFX（波纹 + 预制体）
+        var pool = FindFirstObjectByType<GlobalVFXPool>();
+        if (pool != null)
+            pool.SpawnPerfectDodgeVFX(transform.position);
+
+        // 3. 金属音效
+        if (parrySuccessSound != null && _audioSource != null)
+            _audioSource.PlayOneShot(parrySuccessSound);
+
+        // 4. 相机 FOV Kick
+        if (CameraImpactEffects.Instance != null)
+            CameraImpactEffects.Instance.ApplyFOVKick(AttackForceType.Medium);
+
+        // 5. 惩罚攻击者（原逻辑：施加惩罚效果 + 中断攻击）
+        if (hit.attackData != null && hit.attackData.perfectDodgePunishEffect != null)
+        {
+            var punish = hit.attackData.perfectDodgePunishEffect;
+            if (attackerAscLocal != null)
+            {
+                try
+                {
+                    int handle = attackerAscLocal.ApplyGameplayEffect(punish, _asc);
+                    if (handle > 0)
+                    {
+                        var attackerTagComp = attackerAscLocal.GetComponent<TagComponent>();
+                        bool alreadyHasPunishTag = false;
+                        if (attackerTagComp != null && punish != null)
+                        {
+                            foreach (var granted in punish.grantedTags)
+                            {
+                                if (granted != null && attackerTagComp.HasTag(granted))
+                                {
+                                    alreadyHasPunishTag = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!alreadyHasPunishTag)
+                            attackerAscLocal.InterruptCurrentAbility();
+                    }
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogWarning($"HurtBoxManager: applying perfect-dodge punish effect threw: {e}");
+                }
+            }
+        }
     }
 
     /// <summary>

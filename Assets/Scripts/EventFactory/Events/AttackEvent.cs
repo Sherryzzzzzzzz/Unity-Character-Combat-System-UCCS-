@@ -44,7 +44,11 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
     public Vector3 localForward = Vector3.forward;
 
     public GameObject hitObject;
+
+    /// <summary>本次挥击是否已触发拼刀（防止一次挥击多次拼刀/拼刀后仍伤害）</summary>
+    private bool _clashResolvedThisSwing = false;
     public Vector3 hitPoint;
+    public GameObject attackerRoot; // ★ P3 运行时：攻击者根节点，供受击方计算稳定击退方向
 
     public override TimelineEventType Type => TimelineEventType.Attack;
 
@@ -59,6 +63,8 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
 
     public void OnStart(GameObject owner)
     {
+        _clashResolvedThisSwing = false;
+
         var model = owner.GetComponent<PlayerModel>();
         if (model?.nearestEnemy != null)
             owner.transform.LookAt(model.nearestEnemy);
@@ -93,6 +99,10 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
         {
             Debug.LogWarning($"AttackEvent: 未找到 HitBox '{hitBoxName}'");
         }
+
+        // 判定说明：当前场景受击盒位于 Default 层，MeleeWeapon 触发路径的 hittableLayers(层6/层3)
+        // 不会命中它们——伤害实际由下方形状 Overlap 判定承担（攻击方自身/无ASC对象会被过滤）。
+        // 因此这里必须无条件执行 ExecuteAttack，不能按“存在武器碰撞体”门控。
         ExecuteAttack(owner);
 
         // 设置运行时 Gizmos 可视化
@@ -284,6 +294,30 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
     }
 
 
+    /// <summary>
+    /// ★ 拼刀判定（时间窗口制，鬼泣式）：攻击形状命中目标时，若目标也在攻击中 → 转拼刀而非伤害。
+    /// 相比武器物理碰撞路径（ClashDetector），此判定覆盖双方攻击动画重叠的整个窗口，触发率大幅提升。
+    /// 闪避/格挡状态无 AttackEvent（GetClashLevel 返回 0），不会误判。
+    /// </summary>
+    private bool TryResolveClash(GameObject owner, Collider col)
+    {
+        if (_clashResolvedThisSwing) return true; // 本次挥击已拼刀，跳过伤害
+        if (ClashManager.Instance == null) return false;
+
+        var ownerClashable = owner.GetComponent<IClashable>();
+        var targetClashable = col.GetComponentInParent<IClashable>();
+        if (ownerClashable == null || targetClashable == null || targetClashable == ownerClashable)
+            return false;
+
+        // 目标正在攻击中（攻击技能中返回 forceType>0；闪避/格挡无 AttackEvent 返回 0）
+        if (targetClashable.GetClashLevel() <= 0)
+            return false;
+
+        _clashResolvedThisSwing = true;
+        ClashManager.Instance.ResolveClash(ownerClashable, targetClashable);
+        return true;
+    }
+
     private void ExecuteSphere(AbilitySystemComponent ownerASC, Vector3 center, float radius)
     {
         var hits = Physics.OverlapSphere(center, radius, attackData.hitLayerMask);
@@ -294,7 +328,11 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
             if (targetASC == null || targetASC == ownerASC)
                 continue;
 
+            // ★ 拼刀优先：目标在攻击中 → 转拼刀而非伤害
+            if (TryResolveClash(ownerASC.gameObject, col)) continue;
+
             // 路由到 HurtBoxManager.ProcessHit() — 走格挡/弹反/伤害完整管道
+            this.attackerRoot = ownerASC.gameObject;
             var hbm = col.GetComponentInParent<HurtBoxManager>();
             if (hbm != null)
                 hbm.ProcessHit(this, ownerASC.gameObject, ownerASC);
@@ -316,6 +354,10 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
 
             if (angle <= attackData.angle * 0.5f)
             {
+                // ★ 拼刀优先：目标在攻击中 → 转拼刀而非伤害
+                if (TryResolveClash(ownerASC.gameObject, col)) continue;
+
+                this.attackerRoot = ownerASC.gameObject;
                 var hbm = col.GetComponentInParent<HurtBoxManager>();
                 if (hbm != null)
                     hbm.ProcessHit(this, ownerASC.gameObject, ownerASC);
@@ -348,6 +390,11 @@ public class AttackEvent : TimelineEventBase, ITimelineEventRuntime
             if (targetASC == null || targetASC == ownerASC)
                 continue;
 
+            // ★ 拼刀优先：目标在攻击中 → 转拼刀而非伤害
+            if (TryResolveClash(ownerASC.gameObject, col)) continue;
+
+            // ★ 形状判定路径：写入攻击者根节点，供受击方计算稳定击退方向
+            this.attackerRoot = ownerASC.gameObject;
             var hbm = col.GetComponentInParent<HurtBoxManager>();
             if (hbm != null)
                 hbm.ProcessHit(this, ownerASC.gameObject, ownerASC);
