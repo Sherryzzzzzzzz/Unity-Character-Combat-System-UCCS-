@@ -33,15 +33,15 @@ public class SlashTrailEffect : MonoBehaviour
     [Tooltip("火花寿命（秒）")]
     public float sparkLifetime = 0.35f;
     [Tooltip("火花初始速度范围（米/秒，向四周飞散）")]
-    public float sparkMinSpeed = 1.5f;
-    public float sparkMaxSpeed = 4.5f;
-    [Tooltip("火花大小范围")]
-    public float sparkMinSize = 0.02f;
-    public float sparkMaxSize = 0.06f;
+    public float sparkMinSpeed = 2.5f;
+    public float sparkMaxSpeed = 6f;
+    [Tooltip("火花大小范围（白色圆点）")]
+    public float sparkMinSize = 0.04f;
+    public float sparkMaxSize = 0.09f;
     [Tooltip("火花重力（>0 下落）")]
-    public float sparkGravity = 0.6f;
-    [Tooltip("火花拉伸倍率（越大火花越长）")]
-    public float sparkStretchLength = 2f;
+    public float sparkGravity = 0.5f;
+    [Tooltip("火花亮度（1 = 纯白）")]
+    public float sparkBrightness = 1f;
 
     [Header("VFX 子物体（挂在武器下的粒子特效）")]
     [Tooltip("武器下的 VFX 子物体名（若有多个用逗号隔开），留空=全部子粒子系统")]
@@ -173,7 +173,7 @@ public class SlashTrailEffect : MonoBehaviour
         main.startColor = Color.white;
         main.simulationSpace = ParticleSystemSimulationSpace.World; // ★ 关键：武器移动留下轨迹
         main.gravityModifier = sparkGravity;
-        main.maxParticles = 600;
+        main.maxParticles = 800;
 
         var emit = ps.emission;
         emit.rateOverTime = sparkEmissionRate;
@@ -201,11 +201,10 @@ public class SlashTrailEffect : MonoBehaviour
         );
         col.color = g;
 
-        // —— Renderer：Stretch 拉伸成细长火花（拼刀金属火花感）——
+        // —— Renderer：Billboard 白色圆点粒子（拼刀火花）——
         _sparkRenderer = ps.GetComponent<ParticleSystemRenderer>();
-        _sparkRenderer.renderMode = ParticleSystemRenderMode.Stretch;
-        _sparkRenderer.velocityScale = 0.12f;
-        _sparkRenderer.lengthScale = sparkStretchLength;
+        _sparkRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+        _sparkRenderer.alignment = ParticleSystemRenderSpace.View;
 
         var shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
         if (shader != null)
@@ -218,6 +217,8 @@ public class SlashTrailEffect : MonoBehaviour
             _sparkMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
             _sparkMaterial.EnableKeyword("_BLENDMODE_ADD");
             _sparkMaterial.renderQueue = 3000;
+            // 程序化圆形渐变纹理（白色圆点，不依赖资源）
+            _sparkMaterial.mainTexture = CreateSparkDotTexture();
             _sparkRenderer.material = _sparkMaterial;
         }
 
@@ -225,14 +226,46 @@ public class SlashTrailEffect : MonoBehaviour
     }
 
     /// <summary>
-    /// 按攻击力度切换火花颜色（保持攻击语义；拼刀/格挡火花为蓝白金属色）
+    /// 程序化生成白色径向渐变圆点纹理（64×64，边缘柔和）
+    /// </summary>
+    private Texture2D CreateSparkDotTexture()
+    {
+        const int size = 64;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        float half = size * 0.5f;
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float dx = (x + 0.5f - half) / half;
+                float dy = (y + 0.5f - half) / half;
+                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                // 径向渐变：中心亮、边缘柔和衰减
+                float a = Mathf.Clamp01(1f - d);
+                a = a * a * (3f - 2f * a); // smoothstep 软化边缘
+                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+        }
+        tex.Apply();
+        return tex;
+    }
+
+    /// <summary>
+    /// 火花颜色：统一白色粒子（力度仅微调亮度，sparkBrightness=1 为纯白）
     /// </summary>
     private void ApplySparkColor(AttackForceType forceType)
     {
         if (_sparkPS == null) return;
+        float bright = forceType switch
+        {
+            AttackForceType.Light => 0.95f,
+            AttackForceType.Medium => 1f,
+            AttackForceType.Heavy => 1.05f,
+            AttackForceType.Blow => 1.15f,
+            _ => 1f
+        };
         var main = _sparkPS.main;
-        Color c = GetTrailColor(forceType);
-        main.startColor = new ParticleSystem.MinMaxGradient(c * 1.2f);
+        main.startColor = new ParticleSystem.MinMaxGradient(Color.white * (sparkBrightness * bright));
     }
 
     void ToggleVFX(bool on)
