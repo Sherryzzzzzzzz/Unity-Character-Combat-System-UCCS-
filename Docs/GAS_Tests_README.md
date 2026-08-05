@@ -41,11 +41,12 @@
 ## 程序集配置说明（UCCS.GASTests.asmdef）
 
 - **Editor 平台**（`includePlatforms: ["Editor"]`），勾选 **Test Assemblies** 等效配置：
-  - `references`: `UnityEngine.TestRunner`、`UnityEditor.TestRunner`
+  - `references`: `UnityEngine.TestRunner`、`UnityEditor.TestRunner`、`Assembly-CSharp`
   - `precompiledReferences`: `nunit.framework.dll`（Unity 官方以 `overrideReferences: true` + 该预编译引用识别测试程序集）
 - **未设置** `No Engine References`——测试需要 UnityEngine API（`GameObject`、`AddComponent`、`ScriptableObject.CreateInstance`、`Mathf`）。
-- 被测类位于预定义程序集 **Assembly-CSharp**（`Assets/Scripts/` 下无 asmdef）。
-  自定义 asmdef 程序集默认即可引用预定义程序集，无需额外 `references`；设置 `overrideReferences` 只会接管预编译 DLL 引用，**不会**切断对 Assembly-CSharp 的引用。
+- ⚠️ **Unity 6 (6000.x) 中 asmdef 不再自动引用预定义程序集 `Assembly-CSharp`**，
+  因此 `references` 必须**显式**包含 `Assembly-CSharp`（被测 GAS 类所在程序集）。
+  若日后移动/重命名测试程序集，请保留该引用，否则出现 CS0246。
 
 ## 实现要点 / 注意事项
 
@@ -56,7 +57,7 @@
    （`Player` 未在 `ProjectSettings/TagManager.asset` 注册，调用会输出报错日志）。
 
 2. **GameplayTagSO.HasChild 语义**：实现沿 `otherTag.parentTag` 链向上查找 `this`
-   （即“`this` 是否是 `otherTag` 的祖先”）。因此在**无循环引用**时 `HasChild(自身)` 返回
+   （即"`this` 是否是 `otherTag` 的祖先"）。因此在**无循环引用**时 `HasChild(自身)` 返回
    `false`；`HasChild(子标签)` 返回 `true`；`HasChild(无关标签)` 返回 `false`。
    测试按实现的实际行为断言（`HasChild_Self_ReturnsFalseWithoutCycle`），
    未构造 `parentTag` 自环等病态结构（会令 `GetFullPath` 死循环）。
@@ -78,14 +79,20 @@
 
 ### CS0246: 找不到 AttributeSet / GameplayTagSO / TagComponent 等类型
 
-**原因**：Unity 6 (6000.x) 中，asmdef 程序集**不再自动引用**预定义程序集 。
-被测 GAS 类位于 ，因此测试程序集必须显式引用它。
+**原因**：Unity 6 (6000.x) 中，asmdef 程序集**不再自动引用**预定义程序集 `Assembly-CSharp`。
+被测 GAS 类位于 `Assembly-CSharp`，因此测试程序集必须显式引用它。
 
-**修复（已内置于本项目）**： 的  数组显式包含：
+**修复（已内置于本项目）**：`UCCS.GASTests.asmdef` 的 `references` 数组显式包含：
 
+```json
+"references": [
+    "UnityEngine.TestRunner",
+    "UnityEditor.TestRunner",
+    "Assembly-CSharp"
+]
+```
 
-
-> ⚠️ 若日后移动/重命名测试程序集，请保留  引用，否则上述 CS0246 会复现。
+> ⚠️ 若日后移动/重命名测试程序集，请保留 `Assembly-CSharp` 引用，否则上述 CS0246 会复现。
 
 ### 修改 asmdef 后 Unity 不重新编译
 
