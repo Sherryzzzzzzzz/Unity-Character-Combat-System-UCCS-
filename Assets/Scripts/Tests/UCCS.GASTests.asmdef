@@ -1,10 +1,6 @@
 {
     "name": "UCCS.GASTests",
     "rootNamespace": "",
-    "references": [
-        "UnityEngine.TestRunner",
-        "UnityEditor.TestRunner"
-    ],
     "includePlatforms": [
         "Editor"
     ],
