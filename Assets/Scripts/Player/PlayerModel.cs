@@ -14,7 +14,7 @@ public enum PlayerState
     ground,sky,attack,aim,guard
 }
 
-public class PlayerModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorController, UCCS.IDefenseStateProvider
+public class PlayerModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorController, UCCS.IDefenseStateProvider, UCCS.IPlayerMarker
 {
     private StateMachine animationStateMachine;
     private StateMachine playerStateMachine;
@@ -87,8 +87,10 @@ public class PlayerModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorContro
     public bool isDodging = false;
     public bool isAiming = false;
 
-    [SerializeField] private float maxHitStateDuration = 5f;
+    [SerializeField] private float maxHitStateDuration = 3f;
     private float _hitStateTimer;
+
+    private HitReactionController _hitReaction; // ★ P10: 击飞期间跳过自身重力积分
 
     // 缓存常用引用
     private HurtBoxManager _hbm;
@@ -107,6 +109,7 @@ public class PlayerModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorContro
         wp.Init(GetComponent<AbilitySystemComponent>());
         attributeSet = GetComponent<AttributeSet>();
         _hbm = GetComponent<HurtBoxManager>();
+        _hitReaction = GetComponent<HitReactionController>();
     }
 
     void Start()
@@ -233,26 +236,28 @@ public class PlayerModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorContro
     void OnAnimatorMove()
     {
         if (animator == null) return;
-        
-        if (cc != null && cc.enabled && !stopGravity)
+        if (cc == null || !cc.enabled || stopGravity) return;
+
+        // ★ P10: 被击飞期间，垂直运动由 HitReactionController 的击飞物理接管
+        if (_hitReaction != null && _hitReaction.IsLaunched)
+            return;
+
+        bool isGrounded = PlayerController.Instance.isGround;
+        float groundDistance = PlayerController.Instance.groundDistance;
+
+        if (isGrounded && gravityVector.y < 0f)
         {
-            bool isGrounded = PlayerController.Instance.isGround;
-            float groundDistance = PlayerController.Instance.groundDistance;
-
-            if (isGrounded && gravityVector.y < 0f)
-            {
-                // 保持角色紧贴地面
-                gravityVector.y = gravity;
-            }
-            else
-            {
-                // 累积重力
-                gravityVector.y += gravity * Time.deltaTime;
-            }
-
-            // 应用重力位移
-            cc.Move(gravityVector * Time.deltaTime);
+            // 保持角色紧贴地面
+            gravityVector.y = gravity;
         }
+        else
+        {
+            // 累积重力
+            gravityVector.y += gravity * Time.deltaTime;
+        }
+
+        // 应用重力位移
+        cc.Move(gravityVector * Time.deltaTime);
     }
     
     private void DetectNearestEnemy()

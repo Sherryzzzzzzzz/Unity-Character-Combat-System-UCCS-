@@ -24,14 +24,18 @@ public class AttributeValueTests
     }
 
     /// <summary>
-    /// 创建一个带 Source（ActiveGameplayEffect）的堆叠效果，用于 StackCount 感知测试。
+    /// 创建一个带 Source（IStackCountSource）的堆叠效果，用于 StackCount 感知测试。
+    /// 使用轻量假实现，避免依赖 ActiveGameplayEffect/GameplayEffect（Assembly-CSharp）。
     /// </summary>
-    private ActiveGameplayEffect CreateStackableEffect(int maxStacks)
+    private sealed class FakeStackSource : UCCS.IStackCountSource
     {
-        var ge = ScriptableObject.CreateInstance<GameplayEffect>();
-        _trackedObjects.Add(ge);
-        ge.maxStacks = maxStacks;
-        return new ActiveGameplayEffect(ge, null);
+        public int CurrentStacks { get; set; }
+        public void AddStack() => CurrentStacks++;
+    }
+
+    private FakeStackSource CreateStackableEffect(int stacks)
+    {
+        return new FakeStackSource { CurrentStacks = stacks };
     }
 
     // ==================== Default 模式 ====================

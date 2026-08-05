@@ -33,7 +33,7 @@ public enum CaptureSource
 
 /// <summary>
 /// 属性修改器，用于动态修改 AttributeValue。
-/// 增强版：支持 Source 引用（ActiveGameplayEffect）和 Override 类型。
+/// 增强版：支持 Source 引用（UCCS.IStackCountSource）和 Override 类型。
 /// </summary>
 [Serializable]
 public struct AttributeModifier
@@ -42,11 +42,11 @@ public struct AttributeModifier
     public float value;
 
     /// <summary>
-    /// 修改器来源的 ActiveGameplayEffect 引用（用于 StackCount 感知）。
+    /// 修改器来源（用于 StackCount 感知）。ActiveGameplayEffect 实现该接口；
     /// 对于 Instant 效果或手动创建的修改器可为 null。
     /// </summary>
     [NonSerialized]
-    public ActiveGameplayEffect Source;
+    public UCCS.IStackCountSource Source;
 
     public AttributeModifier(ModifierType type, float value)
     {
@@ -55,7 +55,7 @@ public struct AttributeModifier
         this.Source = null;
     }
 
-    public AttributeModifier(ModifierType type, float value, ActiveGameplayEffect source)
+    public AttributeModifier(ModifierType type, float value, UCCS.IStackCountSource source)
     {
         this.type = type;
         this.value = value;

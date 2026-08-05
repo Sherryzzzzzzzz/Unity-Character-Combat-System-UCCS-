@@ -1,6 +1,9 @@
 {
     "name": "UCCS.GASTests",
     "rootNamespace": "",
+    "references": [
+        "UCCS.GASCore"
+    ],
     "includePlatforms": [
         "Editor"
     ],

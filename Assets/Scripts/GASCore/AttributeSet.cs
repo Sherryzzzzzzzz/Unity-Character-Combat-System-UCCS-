@@ -112,9 +112,9 @@ public class AttributeSet : MonoBehaviour, UCCS.IAttributeProvider
 
     private void Awake()
     {
-        // 如果这个 AttributeSet 属于玩家，设全局引用
-        if (CompareTag("Player") || GetComponent<PlayerModel>() != null ||
-            GetComponentInParent<PlayerModel>() != null || GetComponentInChildren<PlayerModel>() != null)
+        // 如果这个 AttributeSet 属于玩家，设全局引用（UCCS.IPlayerMarker 解耦 PlayerModel）
+        if (CompareTag("Player") || GetComponent<UCCS.IPlayerMarker>() != null ||
+            GetComponentInParent<UCCS.IPlayerMarker>() != null || GetComponentInChildren<UCCS.IPlayerMarker>() != null)
             PlayerAttributes = this;
 
         // 从 Inspector 配置列表初始化属性字典

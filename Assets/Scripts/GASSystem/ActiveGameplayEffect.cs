@@ -4,7 +4,7 @@ using System.Collections.Generic;
 /// <summary>
 /// GameplayEffect 的运行时实例，管理非即时效果的状态
 /// </summary>
-public class ActiveGameplayEffect
+public class ActiveGameplayEffect : UCCS.IStackCountSource
 {
     private static int _nextHandle = 1;
 
@@ -23,6 +23,9 @@ public class ActiveGameplayEffect
 
     public float TimeRemaining { get; private set; }
     public int CurrentStacks { get; private set; }
+
+    /// <summary>UCCS.IStackCountSource 显式实现（供 AttributeModifier StackCount 感知）</summary>
+    int UCCS.IStackCountSource.CurrentStacks => CurrentStacks;
     public bool IsExpired => EffectData.durationPolicy == DurationPolicy.Duration && TimeRemaining <= 0f;
 
     // 已注册到 AttributeSet 的修改器引用

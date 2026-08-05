@@ -24,13 +24,6 @@ namespace UCCS
         void StopMoving();
     }
 
-    /// <summary>属性提供者接口 — 解耦条件节点和具体属性实现</summary>
-    public interface IAttributeProvider
-    {
-        float Health { get; }
-        float HealthMax { get; }
-    }
-
     /// <summary>受击处理接口 — 解耦攻击系统和具体受击实现</summary>
     public interface IHitHandler
     {
