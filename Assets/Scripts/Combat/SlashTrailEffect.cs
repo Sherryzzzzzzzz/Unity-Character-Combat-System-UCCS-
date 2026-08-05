@@ -23,6 +23,12 @@ public class SlashTrailEffect : MonoBehaviour
     [Tooltip("武器下的 VFX 子物体名（若有多个用逗号隔开），留空=全部子粒子系统")]
     public string vfxChildNames = "";
 
+    [Header("斩击火花 (拼刀规格)")]
+    [Tooltip("挥砍时是否在武器位置生成程序化斩击火花 + 冲击波")]
+    public bool spawnSlashSpark = true;
+    [Tooltip("斩击火花强度倍率（冲击波半径随力度 × 此值）")]
+    public float slashSparkScale = 0.6f;
+
     [Header("材质")]
     public Material slashMaterial;
 
@@ -74,8 +80,28 @@ public class SlashTrailEffect : MonoBehaviour
         // —— 子物体 VFX ——
         ToggleVFX(true);
 
+        // ★ 斩击火花（拼刀规格）：挥砍瞬间在武器位置生成火花 + 冲击波
+        if (spawnSlashSpark)
+            SpawnSlashSpark(forceType);
+
         StopAllCoroutines();
         StartCoroutine(AutoDeactivate());
+    }
+
+    /// <summary>
+    /// 生成斩击火花：程序化小型冲击波 + 蓝白金属火花（与拼刀命中同规格）。
+    /// </summary>
+    private void SpawnSlashSpark(AttackForceType forceType)
+    {
+        Vector3 sparkPos = transform.position + transform.forward * 0.3f + Vector3.up * 0.1f;
+
+        // 小型冲击波（半径 = 力度冲击波 × slashSparkScale）
+        ShockwaveEffect.SpawnSlashWave(sparkPos, forceType);
+
+        // 金属火花（复用 GlobalVFXPool 的 blockSparksVFX，与拼刀/格挡同规格）
+        var pool = Object.FindFirstObjectByType<GlobalVFXPool>();
+        if (pool != null && pool.blockSparksVFX != null)
+            pool.SpawnBlockSparks(sparkPos, Quaternion.LookRotation(transform.forward));
     }
 
     public void Deactivate()

@@ -18,6 +18,12 @@ public class GlobalVFXPool : MonoBehaviour
     [Header("Block Sparks VFX")]
     public GameObject blockSparksVFX;
 
+    [Header("Hit Sparks (拼刀规格)")]
+    [Tooltip("命中时多角度火花喷射数量（拼刀规格，0 = 关闭）")]
+    public int hitSparkCount = 3;
+    [Tooltip("命中火花喷射散布半径")]
+    public float hitSparkSpread = 0.35f;
+
     [Header("Clash VFX")]
     public GameObject clashVFX;
 
@@ -28,7 +34,7 @@ public class GlobalVFXPool : MonoBehaviour
     public int poolSize = 10;
 
     /// <summary>
-    /// 按攻击力度生成命中 VFX
+    /// 按攻击力度生成命中 VFX（★ 拼刀规格：火花 + 全力度冲击波 + 多角度火花喷射）
     /// </summary>
     public void SpawnHitVFX(AttackForceType forceType, Vector3 position, Quaternion rotation)
     {
@@ -44,9 +50,21 @@ public class GlobalVFXPool : MonoBehaviour
         if (prefab != null)
             Destroy(Instantiate(prefab, position, rotation), 3f);
 
-        // 剑气冲击波（Medium 及以上力度）
-        if (useProceduralShockwave && forceType >= AttackForceType.Medium)
+        // ★ 拼刀规格：全力度程序化冲击波（Light 也生效，小半径）
+        if (useProceduralShockwave)
             ShockwaveEffect.SpawnSlashWave(position, forceType);
+
+        // ★ 拼刀规格：多角度火花喷射（与拼刀 SpawnClashVFX 同规格，复用 blockSparksVFX）
+        if (hitSparkCount > 0 && blockSparksVFX != null)
+        {
+            for (int i = 0; i < hitSparkCount; i++)
+            {
+                Vector3 offset = Random.insideUnitSphere * hitSparkSpread;
+                offset.y = Mathf.Abs(offset.y) * 0.4f + 0.1f;
+                Vector3 dir = (rotation * Vector3.forward + offset * 2f).normalized;
+                SpawnBlockSparks(position + offset, Quaternion.LookRotation(dir));
+            }
+        }
     }
 
     /// <summary>
