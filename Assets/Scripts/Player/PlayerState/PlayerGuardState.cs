@@ -64,6 +64,14 @@ public class PlayerGuardState : PlayerStateBase
             playerModel.StartCoroutine(RemoveParryTagAfterDelay(hbm.perfectParryTag, 0.18f));
         }
 
+        // 【鬼泣式 Just Guard 窗口】进入格挡的最初 justGuardWindow 秒内被命中 = 完美格挡
+        // （无伤、零消耗、弹开攻击者、慢动作、反击加成）—— 比完美弹反更短的精确窗口
+        if (hbm != null && hbm.justGuardTag != null && _tagComponent != null)
+        {
+            _tagComponent.AddTag(hbm.justGuardTag);
+            playerModel.StartCoroutine(RemoveParryTagAfterDelay(hbm.justGuardTag, hbm.justGuardWindow));
+        }
+
         // 监听 Poise 变化和破防
         if (_attributes != null)
         {
@@ -206,6 +214,7 @@ public class PlayerGuardState : PlayerStateBase
                 if (hbm.guardingTag != null) _tagComponent.RemoveTag(hbm.guardingTag);
                 if (hbm.normalParryTag != null) _tagComponent.RemoveTag(hbm.normalParryTag);
                 if (hbm.perfectParryTag != null) _tagComponent.RemoveTag(hbm.perfectParryTag);
+                if (hbm.justGuardTag != null) _tagComponent.RemoveTag(hbm.justGuardTag);
             }
         }
 

@@ -18,9 +18,9 @@ public class MeleeWeapon : MonoBehaviour
 
     private AbilitySystemComponent _ownerASC;
 
-    /// <summary>拼刀宽限期 — 攻击结束后的短时间内仍可触发拼刀</summary>
+    /// <summary>拼刀宽限期 — 攻击结束后保留极短时间仍可触发拼刀（P6: 0.35s 过宽改为 0.12s）</summary>
     private float _clashGraceTime = -1f;
-    private const float ClashGraceDuration = 0.35f;
+    private const float ClashGraceDuration = 0.12f;
 
     public void Init(AbilitySystemComponent ownerASC)
     {
@@ -74,7 +74,9 @@ public class MeleeWeapon : MonoBehaviour
             var otherWeapon = other.GetComponent<MeleeWeapon>();
             if (otherWeapon != null && otherWeapon.IsInClashWindow && IsInClashWindow)
             {
+#if UNITY_EDITOR
                 Debug.Log($"[Clash] ✅ 武器碰撞拼刀! {name} vs {other.name}");
+#endif
                 DoClash(otherWeapon._ownerClashable);
             }
             return; // 武器层碰撞不造成伤害
@@ -98,7 +100,9 @@ public class MeleeWeapon : MonoBehaviour
                     var otherClashable = tw._ownerClashable;
                     if (otherClashable != null && _ownerClashable != null)
                     {
+#if UNITY_EDITOR
                         Debug.Log($"[Clash] ✅ 双方攻击中, 转为拼刀! (via body) {name}→{other.name}");
+#endif
                         DoClash(otherClashable);
                         tw._hasClashedThisSwing = true;
                         return;
@@ -112,6 +116,7 @@ public class MeleeWeapon : MonoBehaviour
             {
                 _currentAttackEvent.hitObject = other.gameObject;
                 _currentAttackEvent.hitPoint = other.ClosestPoint(transform.position);
+                _currentAttackEvent.attackerRoot = this.transform.root.gameObject; // ★ P3: 供受击方计算稳定击退方向
                 hurtBoxManager.ProcessHit(_currentAttackEvent, this.transform.root.gameObject, _ownerASC);
 
                 // 攻击者反馈

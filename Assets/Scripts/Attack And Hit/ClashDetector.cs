@@ -11,7 +11,9 @@ public class ClashDetector : MonoBehaviour
     private void Awake()
     {
         _ownerClashable = GetComponentInParent<IClashable>();
+#if UNITY_EDITOR
         Debug.Log(_ownerClashable);
+#endif
         // 默认禁用
         GetComponent<Collider>().enabled = false;
         

@@ -54,6 +54,24 @@ public class HurtBoxManager : MonoBehaviour
     [Tooltip("弹反成功音效")]
     public AudioClip parrySuccessSound;
 
+    [Header("Just Guard (鬼泣式完美格挡)")]
+    [Tooltip("完美格挡窗口标签：格挡激活后的极短窗口内被命中 = Just Guard（无伤、零消耗、弹开攻击者、慢动作、反击加成）")]
+    public GameplayTagSO justGuardTag;
+    [Tooltip("Just Guard 窗口时长（秒）。进入格挡后此窗口内被命中即触发")]
+    public float justGuardWindow = 0.13f;
+    [Tooltip("Just Guard 成功后授予的反击标签：持有期间下一次攻击伤害提升")]
+    public GameplayTagSO counterReadyTag;
+    [Tooltip("反击伤害倍率 (1.5 = 150% 伤害)")]
+    public float counterMultiplier = 1.5f;
+    [Tooltip("反击状态持续时长（秒）")]
+    public float counterWindowDuration = 0.8f;
+    [Tooltip("Just Guard 慢动作时间缩放 (0.15 = 15% 速度)")]
+    public float justGuardTimeScale = 0.15f;
+    [Tooltip("Just Guard 慢动作持续真实秒数")]
+    public float justGuardSlowMotionDuration = 0.12f;
+    [Tooltip("Just Guard 弹开攻击者的击退力度倍率（相对普通格挡）")]
+    public float justGuardPushMultiplier = 2f;
+
     private TagComponent _tagComponent;
 
     private HitReactionController hitReactionController;
@@ -80,6 +98,12 @@ public class HurtBoxManager : MonoBehaviour
         _audioSource = GetComponent<AudioSource>();
         if (_audioSource == null)
             _audioSource = gameObject.AddComponent<AudioSource>();
+
+        // 运行时兜底：Just Guard / 反击标签未配置时自动创建，保证新系统开箱即用
+        if (justGuardTag == null)
+            justGuardTag = CreateRuntimeTag("State.Guarding.JustGuard");
+        if (counterReadyTag == null)
+            counterReadyTag = CreateRuntimeTag("State.Counter.Ready");
     }
 
     private void Update()
@@ -114,26 +138,16 @@ public class HurtBoxManager : MonoBehaviour
 
         var attackerAscLocal = attackerASC ?? attacker?.GetComponent<AbilitySystemComponent>();
 
-        // 弹反 (Parry)
+        // 弹反 (Parry) — 鬼泣式三级判定：Just Guard(完美格挡) > 完美弹反 > 普通弹反
+        if (justGuardTag != null && _tagComponent.HasTag(justGuardTag))
+        {
+            HandleJustGuard(hit, attacker, attackerAscLocal);
+            return;
+        }
         if (_tagComponent.HasTag(perfectParryTag) ||
             _tagComponent.HasTag(normalParryTag))
         {
-            var attackerTagComponent = attacker.GetComponent<TagComponent>();
-            if (attackerTagComponent != null && parrySuccessTag != null)
-                attackerTagComponent.AddTransientTag(parrySuccessTag);
-
-            // 弹反成功 VFX
-            if (parrySuccessVFX != null)
-            {
-                Vector3 hitPoint = attacker != null ?
-                    (transform.position + attacker.transform.position) / 2f : transform.position;
-                Instantiate(parrySuccessVFX, hitPoint, Quaternion.identity);
-            }
-
-            // 弹反成功音效
-            if (parrySuccessSound != null && _audioSource != null)
-                _audioSource.PlayOneShot(parrySuccessSound);
-
+            HandleParry(hit, attacker);
             return;
         }
 
@@ -229,7 +243,9 @@ public class HurtBoxManager : MonoBehaviour
         if (damage > 0f && _attributes != null)
         {
             _attributes.ModifyHealth(-damage);
+#if UNITY_EDITOR
             Debug.Log($"{gameObject.name} blocked! Took {damage:F1} dmg (raw={(hit.attackData?.effect?.damage ?? 0f):F0}, blocked={blockDamageReduction*100f:F0}%, defense={_attributes?.Defense ?? 0f:F0})");
+#endif
         }
 
         // 2. 消耗防御者 Poise（韧性）
@@ -373,13 +389,159 @@ public class HurtBoxManager : MonoBehaviour
     }
 
     /// <summary>
+    /// 鬼泣式 Just Guard（完美格挡）：
+    /// 无伤、零韧性/体力消耗、攻击者被大幅弹开、触发慢动作 + 蓝白火花 + 反击状态。
+    /// </summary>
+    private void HandleJustGuard(AttackEvent hit, GameObject attacker, AbilitySystemComponent attackerAscLocal)
+    {
+        // 1. 给攻击者施加"被弹反"事件 → Parryable 中断攻击并播放被弹反硬直
+        var attackerTagComponent = attacker != null ? attacker.GetComponent<TagComponent>() : null;
+        if (attackerTagComponent != null && parrySuccessTag != null)
+            attackerTagComponent.AddTransientTag(parrySuccessTag);
+
+        // 2. 弹开攻击者（比普通格挡更强的击退 + 强制受击停顿）
+        if (attacker != null && attacker != gameObject)
+        {
+            var attackerCC = attacker.GetComponent<CharacterController>();
+            if (attackerCC != null)
+            {
+                Vector3 pushDir = (attacker.transform.position - transform.position).normalized;
+                pushDir.y = 0f;
+                if (pushDir.sqrMagnitude < 0.01f) pushDir = -transform.forward;
+
+                float basePush = hit.attackData?.forceType switch
+                {
+                    AttackForceType.Light => 4f,
+                    AttackForceType.Medium => 6f,
+                    AttackForceType.Heavy => 8f,
+                    AttackForceType.Blow => 12f,
+                    _ => 5f
+                };
+                StartCoroutine(PushBackRoutine(attackerCC, pushDir, basePush * justGuardPushMultiplier, 0.28f));
+            }
+
+            var attackerHitStop = attacker.GetComponent<HitStopController>();
+            if (attackerHitStop != null)
+                attackerHitStop.ApplyAttackerHitStop(hit.attackData?.forceType ?? AttackForceType.Light);
+        }
+
+        // 3. 慢动作（鬼泣招牌：时间冻结后回弹）
+        TimeScaleDirector.Instance.DoSlowMotion(justGuardTimeScale, justGuardSlowMotionDuration, restoreImmediately: false);
+
+        // 4. 视觉/听觉反馈：蓝白火花 + 冲击波 + 金属音 + 相机震动 + FOV
+        Vector3 hitPoint = attacker != null
+            ? (transform.position + attacker.transform.position) / 2f
+            : transform.position;
+        var pool = FindFirstObjectByType<GlobalVFXPool>();
+        if (pool != null)
+            pool.SpawnClashVFX(hitPoint);
+        else if (blockSparksVFX != null)
+            Instantiate(blockSparksVFX, hitPoint, Quaternion.identity);
+
+        if (parrySuccessSound != null && _audioSource != null)
+            _audioSource.PlayOneShot(parrySuccessSound);
+
+        if (_impulseSource != null)
+        {
+            Vector3 shakeDir = attacker != null
+                ? (attacker.transform.position - transform.position).normalized
+                : Vector3.back;
+            _impulseSource.GenerateImpulseWithVelocity(shakeDir * (blockCameraShake * 1.5f));
+        }
+        if (CameraImpactEffects.Instance != null)
+            CameraImpactEffects.Instance.ApplyFOVKick(AttackForceType.Heavy);
+
+        // 5. 授予反击状态：下次攻击伤害提升，短暂持续
+        if (counterReadyTag != null)
+        {
+            _tagComponent.AddTag(counterReadyTag);
+            StartCoroutine(RemoveTagAfterDelay(counterReadyTag, counterWindowDuration));
+        }
+    }
+
+    /// <summary>
+    /// 普通弹反/完美弹反：中断攻击者技能并播放被弹反硬直（无慢动作与反击加成）。
+    /// </summary>
+    private void HandleParry(AttackEvent hit, GameObject attacker)
+    {
+        var attackerTagComponent = attacker != null ? attacker.GetComponent<TagComponent>() : null;
+        if (attackerTagComponent != null && parrySuccessTag != null)
+            attackerTagComponent.AddTransientTag(parrySuccessTag);
+
+        // 弹反成功 VFX
+        if (parrySuccessVFX != null)
+        {
+            Vector3 hitPoint = attacker != null ?
+                (transform.position + attacker.transform.position) / 2f : transform.position;
+            Instantiate(parrySuccessVFX, hitPoint, Quaternion.identity);
+        }
+
+        // 弹反成功音效
+        if (parrySuccessSound != null && _audioSource != null)
+            _audioSource.PlayOneShot(parrySuccessSound);
+    }
+
+    /// <summary>
+    /// 消耗攻击者的反击标签（Just Guard 触发）。返回 true 表示本次攻击享受反击加成。
+    /// </summary>
+    private bool TryConsumeCounterTag(AbilitySystemComponent attackerASC)
+    {
+        if (attackerASC == null || counterReadyTag == null) return false;
+        var tags = attackerASC.GetComponent<TagComponent>();
+        if (tags == null || !tags.HasTag(counterReadyTag)) return false;
+        tags.RemoveTag(counterReadyTag);
+        return true;
+    }
+
+    private System.Collections.IEnumerator RemoveTagAfterDelay(GameplayTagSO tag, float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        if (_tagComponent != null && tag != null)
+            _tagComponent.RemoveTag(tag);
+    }
+
+    /// <summary>
+    /// 运行时兜底：标签资产未在场景中配置时自动创建（保证 Just Guard / 反击开箱即用）。
+    /// 仅用于运行时代码路径，不写入资产库。
+    /// </summary>
+    private static GameplayTagSO CreateRuntimeTag(string tagName)
+    {
+        var tag = ScriptableObject.CreateInstance<GameplayTagSO>();
+        tag.name = tagName;
+        return tag;
+    }
+
+    /// <summary>
     /// 正常受击：施加伤害效果并播放受击反应
     /// </summary>
     private void ApplyDamageToTarget(AttackEvent hit, GameObject attacker, AbilitySystemComponent attackerASC)
     {
         // 施加伤害
         if (_asc != null && attackerASC != null && hit.attackData != null && hit.attackData.effect != null)
-            _asc.ApplyGameplayEffect(hit.attackData.effect, attackerASC);
+        {
+            // ★ 反击加成：攻击者持有 counterReadyTag（来自 Just Guard）时伤害提升并消耗该标签
+            if (TryConsumeCounterTag(attackerASC))
+            {
+                var context = attackerASC.MakeEffectContext();
+                context.Instigator = attacker;
+                context.Origin = hit.hitPoint;
+                context.Normal = attacker != null
+                    ? (transform.position - attacker.transform.position).normalized
+                    : Vector3.back;
+
+                var spec = attackerASC.MakeOutgoingSpec(hit.attackData.effect, 1f, context);
+                if (spec != null)
+                {
+                    for (int i = 0; i < spec.EffectData.modifiers.Count; i++)
+                        spec.SetMagnitudeOverride(i, spec.GetMagnitude(i) * counterMultiplier);
+                    _asc.ApplyEffectSpec(spec);
+                }
+            }
+            else
+            {
+                _asc.ApplyGameplayEffect(hit.attackData.effect, attackerASC);
+            }
+        }
 
         // 受击音效
         if (_audioSource != null)

@@ -18,6 +18,14 @@ public class ClashManager : MonoBehaviour
     public float baseKnockbackForce = 5f;
     public float levelMultiplier = 0.2f;
 
+    [Header("鬼泣式拼刀强化")]
+    [Tooltip("拼刀慢动作时间缩放 (0.05 = 5% 速度，极慢定格)")]
+    public float clashTimeScale = 0.05f;
+    [Tooltip("拼刀火花喷射数量（围绕碰撞点随机散布，0 = 不喷）")]
+    public int clashSparkCount = 5;
+    [Tooltip("额外金属音效（可选，与 clashSound 同时播放形成厚实金属感）")]
+    public AudioClip clashSoundExtra;
+
     // --- 新增：用于 LookAt 的虚拟目标 ---
     private Transform _clashLookAtTarget;
 
@@ -39,7 +47,9 @@ public class ClashManager : MonoBehaviour
     public void ResolveClash(IClashable unitA, IClashable unitB)
     {
         if (unitA == null || unitB == null) return;
+#if UNITY_EDITOR
         Debug.Log("ClashManager: Clash started between " + unitA.GetGameObject().name + " and " + unitB.GetGameObject().name);
+#endif
         // 立即启动导演协程
         StartCoroutine(DirectClashSequence(unitA, unitB));
     }
@@ -50,16 +60,38 @@ public class ClashManager : MonoBehaviour
         GameObject unitA_GO = unitA.GetGameObject();
         GameObject unitB_GO = unitB.GetGameObject();
 
-        // 播放通用效果
+        // 播放通用效果（鬼泣式：蓝白火花 + 冲击波 + 多角度火花喷射）
         Vector3 clashPoint = (unitA_GO.transform.position + unitB_GO.transform.position) / 2;
-        if (clashVFX != null)
+        clashPoint.y += 0.3f;
+
+        // 中心火花（走 GlobalVFXPool 统一管线：预制体 + 程序化冲击波）
+        var pool = FindFirstObjectByType<GlobalVFXPool>();
+        if (pool != null)
+        {
+            pool.SpawnClashVFX(clashPoint);
+        }
+        else if (clashVFX != null)
         {
             var vfx = Instantiate(clashVFX, clashPoint, Quaternion.identity);
-            Destroy(vfx, 2f); // ★ 2秒后自动销毁
+            Destroy(vfx, 2f);
         }
-        if (clashSound != null) audioSource.PlayOneShot(clashSound);
 
-        // --- 导演喊”卡！” ---
+        // 多角度火花喷射：围绕碰撞点随机散布，营造金属四溅的冲击感
+        if (pool != null && clashSparkCount > 0)
+        {
+            for (int i = 0; i < clashSparkCount; i++)
+            {
+                Vector3 offset = Random.insideUnitSphere * 0.5f;
+                offset.y = Mathf.Abs(offset.y) * 0.5f + 0.1f;
+                Quaternion rot = Quaternion.LookRotation((unitA_GO.transform.position - unitB_GO.transform.position + offset).normalized);
+                pool.SpawnBlockSparks(clashPoint + offset, rot);
+            }
+        }
+
+        if (clashSound != null) audioSource.PlayOneShot(clashSound);
+        if (clashSoundExtra != null) audioSource.PlayOneShot(clashSoundExtra);
+
+        // --- 导演喊"卡！" ---
         // 1. 清除双方武器剑气特效
         SlashTrailEffect.DeactivateAllOn(unitA.GetGameObject());
         SlashTrailEffect.DeactivateAllOn(unitB.GetGameObject());
@@ -68,15 +100,23 @@ public class ClashManager : MonoBehaviour
         unitA.FreezeAnimation();
         unitB.FreezeAnimation();
 
-        // 2. 切换到对决镜头
+        // 3. 切换到对决镜头
         SwitchToClashCamera(unitA_GO.transform, unitB_GO.transform);
 
-        // --- “卡肉”阶段 ---
-        // 3. 全局等待 freezeDuration
-        yield return new WaitForSeconds(freezeDuration);
+        // 4. 通过 CombatCameraManager 触发拼刀震屏 + FOV Kick
+        var cm = CombatCameraManager.Instance;
+        Vector3 attackDir = (unitB_GO.transform.position - unitA_GO.transform.position).normalized;
+        cm?.TriggerShake(attackDir, 0.8f, 4);
+        cm?.TriggerFOVKickRaw(4f);
 
-        // --- 导演喊“开始！” ---
-        // 4. 计算最终结果
+        // ★ 鬼泣式：全局慢动作定格（时间冻结后回弹）。
+        //   注意 freeze 阶段使用 WaitForSecondsRealtime，避免被自身 timeScale 拖长。
+        TimeScaleDirector.Instance.DoSlowMotion(clashTimeScale, freezeDuration + 0.15f, restoreImmediately: false);
+
+        // --- "卡肉"阶段 ---
+        yield return new WaitForSecondsRealtime(freezeDuration);
+
+        // --- 导演喊"开始！" ---
         int levelA = unitA.GetClashLevel();
         int levelB = unitB.GetClashLevel();
         int levelDifference = levelA - levelB;
@@ -85,7 +125,6 @@ public class ClashManager : MonoBehaviour
         {
             StunDuration = Mathf.Max(0.1f, baseStunDuration * (1f - (levelDifference * levelMultiplier))),
             KnockbackForce = baseKnockbackForce,
-            // 击退方向 = 从碰撞中心点指向自己
             KnockbackDirection = (unitA_GO.transform.position - clashPoint).normalized
         };
 
@@ -101,7 +140,6 @@ public class ClashManager : MonoBehaviour
         unitB.ResumeAndExecuteClash(resultB);
         
         // 6. 启动相机恢复计时
-        // (总时长 = 卡肉 + 最长硬直)
         float totalDuration = freezeDuration + Mathf.Max(resultA.StunDuration, resultB.StunDuration);
         StartCoroutine(ReturnToMainCamera(totalDuration));
     }
@@ -133,9 +171,8 @@ public class ClashManager : MonoBehaviour
 
         // 5. 激活对决相机，Cinemachine 会自动处理切换
         clashCamera.gameObject.SetActive(true);
-        
-        // 6. 启动协程，在一段时间后切回主相机
-        StartCoroutine(ReturnToMainCamera(baseStunDuration * 1.5f)); 
+
+        // （相机恢复计时由 DirectClashSequence 统一控制，避免重复 StartCoroutine 提前切回）
     }
 
     private IEnumerator ReturnToMainCamera(float delay)
@@ -145,5 +182,9 @@ public class ClashManager : MonoBehaviour
         {
             clashCamera.gameObject.SetActive(false);
         }
+
+        // ★ P15: 恢复主相机后重新评估锁敌状态（若拼刀前处于锁敌，恢复锁敌机位与阻尼）
+        if (LockOnCameraSwitcher.Instance != null)
+            LockOnCameraSwitcher.Instance.RefreshLockOnState();
     }
 }
