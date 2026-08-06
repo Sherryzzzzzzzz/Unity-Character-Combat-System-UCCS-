@@ -26,6 +26,10 @@ UCCS 是一个基于 Unity 的 **第三人称动作战斗系统**，核心特色
 4. **[UI 系统](04-UI-System.md)** — HUD/血条/状态效果
 5. **[其他系统](05-Other-Systems.md)** — AI行为树/相机/调试工具
 6. **[鬼泣式拼刀/完美格挡/反击系统](06-Just-Guard-Clash-System.md)** — Just Guard + 拼刀慢动作 + 反击加成（最新）
+7. **[双轨系统收敛计划](07-System-Consolidation-Plan.md)** — 旧/新系统迁移路线（ADR）
+8. **[玩家状态机](08-Player-State-Machine.md)** — 双状态机 + 状态转换图 + 面试速查
+9. **[GAS 深度剖析](09-GAS-Deep-Dive.md)** — GAS 面试级详解（调用链/时序/取舍）
+10. **[敌人行为树](10-Enemy-BT.md)** — 自研 BT + Behavior Designer 双轨 + BOSS 树示例
 
 ## 项目目录结构
 
