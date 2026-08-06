@@ -17,6 +17,10 @@ public class PlayerGuardState : PlayerStateBase
         // 标记为 attacking 状态，防止 StopAndCleanup 的 triggerDefaultStateChange 覆盖状态
         playerModel.isAttacking = true;
 
+        // ★ 地面格挡：动画层回 idle（基础层站姿，被 Layer1 持盾覆盖；空中格挡保持下落动画）
+        if (playerController != null && playerController.isGround)
+            playerModel.ChangeAnimationState(PlayerAnimationState.idle);
+
         var animancer = playerModel.animancer;
         _attackLayer = animancer.Layers[1];
 

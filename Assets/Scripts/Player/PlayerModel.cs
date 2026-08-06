@@ -199,6 +199,9 @@ public class PlayerModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorContro
             case PlayerAnimationState.fall:
                 animationStateMachine.EnterState<FallState>();
                 break;
+            case PlayerAnimationState.aim:
+                animationStateMachine.EnterState<AimState>();
+                break;
         }
         _PlayerAnimationState = animationState;
     }

@@ -6,8 +6,6 @@ using UnityEngine.PlayerLoop;
 public class PlayerGroundAimState : PlayerStateBase 
 {
     [Header("锁敌参数")]
-    [Tooltip("角色朝向锁敌目标的旋转速度")]
-    public float rotationSpeed = 10f;
     [Tooltip("锁敌状态下的移动速度")]
     public float moveSpeed = 3f;
     [Tooltip("翻滚后恢复朝向的过渡时间（秒）")]
@@ -53,6 +51,9 @@ public class PlayerGroundAimState : PlayerStateBase
                 _smoothRotateCoroutine = playerModel.StartCoroutine(SmoothRotateToTarget());
             }
         }
+
+        // ★ 动画层切到锁敌态（AimState：移动混合 + 面向目标转向）
+        playerModel.ChangeAnimationState(PlayerAnimationState.aim);
     }
 
     public override void Update()
@@ -108,8 +109,9 @@ public class PlayerGroundAimState : PlayerStateBase
             if(!playerModel.isAttacking)
                 playerModel.ChangePlayerState(PlayerState.guard);
         }
-        
-        ForceRotationTowardsTarget();
+
+        // ★ 转向职责已收敛到动画层 AimState（避免逻辑层+动画层双重 Slerp 导致转向过慢）
+        // （翻滚后大角度恢复的 SmoothRotateToTarget 协程仍保留）
 
         Vector2 moveInput = playerController.movement;
         playerController.speed = moveSpeed * moveInput.magnitude;
@@ -135,22 +137,6 @@ public class PlayerGroundAimState : PlayerStateBase
             playerModel.pac.OnSkillEnd -= OnDodgeFinished;
         }
         _isDodging = false;
-    }
-
-    private void ForceRotationTowardsTarget()
-    {
-        // 如果正在执行平滑旋转过渡，跳过 Update 中的强制旋转
-        if (_smoothRotateCoroutine != null) return;
-
-        if (!playerModel.ts || playerModel.ts.CurrentTarget == null) return;
-
-        Vector3 directionToTarget = playerModel.ts.CurrentTarget.position - playerModel.transform.position;
-        directionToTarget.y = 0;
-        if (directionToTarget != Vector3.zero)
-        {
-            Quaternion targetRotation = Quaternion.LookRotation(directionToTarget);
-            playerModel.transform.rotation = Quaternion.Slerp(playerModel.transform.rotation, targetRotation, Time.deltaTime * rotationSpeed);
-        }
     }
 
     /// <summary>
