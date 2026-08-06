@@ -81,6 +81,11 @@ public class EnemyModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorControl
         }
 #endif
 
+        if (bTreeRunner.treeAsset != null)
+            Debug.Log($"[EnemyModel] {gameObject.name}: AI 装配完成 → '{bTreeRunner.treeAsset.name}'", this);
+        else
+            Debug.LogWarning($"[EnemyModel] {gameObject.name}: AI 装配失败——treeAsset 为空（编辑器外运行？）", this);
+
         _hbm = GetComponent<HurtBoxManager>();
         _attributes = GetComponent<AttributeSet>();
         _animDriver = GetComponent<EnemyAnimationDriver>();

@@ -65,7 +65,13 @@ public class BTreeRunner : MonoBehaviour, IBTRunner
     {
         if (treeAsset == null)
         {
-            Debug.LogWarning($"BTreeRunner on '{gameObject.name}': treeAsset is null", this);
+            Debug.LogWarning($"[BTreeRunner] {gameObject.name}: treeAsset is null", this);
+            return;
+        }
+        if (treeAsset.rootNode == null)
+        {
+            Debug.LogError($"[BTreeRunner] {gameObject.name}: treeAsset '{treeAsset.name}' 的 rootNode 为 null——" +
+                $"SerializeReference 反序列化失败？(节点类与程序集不匹配)", this);
             return;
         }
 
@@ -91,6 +97,11 @@ public class BTreeRunner : MonoBehaviour, IBTRunner
         {
             _rootInstance.OnEnter(this);
             _running = true;
+            Debug.Log($"[BTreeRunner] {gameObject.name}: 树已启动 '{treeAsset.name}' (根节点 {treeAsset.rootNode.GetType().Name})");
+        }
+        else
+        {
+            Debug.LogError($"[BTreeRunner] {gameObject.name}: CloneNode 返回 null——树深拷贝失败！", this);
         }
     }
 
