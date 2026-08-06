@@ -235,7 +235,7 @@ public class PlayerHUD : MonoBehaviour
             if (_playerAttributes != null) return _playerAttributes;
         }
 
-        var playerGo = GameObject.FindGameObjectWithTag("Player");
+        var playerGo = PlayerController.Instance != null ? PlayerController.Instance.gameObject : null;
         if (playerGo == null) return null;
 
         _playerAttributes = playerGo.GetComponent<AttributeSet>();

@@ -28,7 +28,7 @@ public class StatusEffectListUI : MonoBehaviour
             iconContainer = transform;
 
         // 查找玩家的 TagComponent
-        var player = GameObject.FindGameObjectWithTag("Player");
+        var player = PlayerController.Instance != null ? PlayerController.Instance.gameObject : null;
         if (player != null)
         {
             _tagComponent = player.GetComponent<TagComponent>();

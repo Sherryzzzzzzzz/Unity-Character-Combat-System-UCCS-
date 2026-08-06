@@ -59,24 +59,27 @@ public class EnemyModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorControl
     private void Awake()
     {
         cc = GetComponent<CharacterController>();
-        _player = GameObject.FindGameObjectWithTag("Player");
+        // ★ PlayerController 单例替代 FindGameObjectWithTag("Player")（Player 是 Layer 非 Tag，会抛异常）
+        _player = PlayerController.Instance != null
+            ? PlayerController.Instance.gameObject
+            : FindAnyObjectByType<PlayerController>()?.gameObject;
         bTreeRunner = GetComponent<BTreeRunner>();
 
         // ★ 自动装配：场景敌人若未挂 BTreeRunner，运行时自动添加并加载 AI 树资产
         //   （自研行为树已替换 Behavior Designer）
         if (bTreeRunner == null)
-        {
             bTreeRunner = gameObject.AddComponent<BTreeRunner>();
+
+        // ★ treeAsset 兜底：无论组件是新添加还是场景已有（资产未配置），都尝试加载 AI 树
 #if UNITY_EDITOR
-            if (bTreeRunner.treeAsset == null)
-            {
-                var aiAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<BTreeAsset>(
-                    "Assets/Data/AI/Enemy_Aggressive_BTree.asset");
-                if (aiAsset != null)
-                    bTreeRunner.treeAsset = aiAsset;
-            }
-#endif
+        if (bTreeRunner.treeAsset == null)
+        {
+            var aiAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<BTreeAsset>(
+                "Assets/Data/AI/Enemy_Aggressive_BTree.asset");
+            if (aiAsset != null)
+                bTreeRunner.treeAsset = aiAsset;
         }
+#endif
 
         _hbm = GetComponent<HurtBoxManager>();
         _attributes = GetComponent<AttributeSet>();
@@ -90,9 +93,13 @@ public class EnemyModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorControl
 
     void Start()
     {
-        // Start 时再试一次（Awake 可能 player 还没生成）
+        // Start 时再试一次（Awake 可能 player 还没生成/单例未初始化）
         if (_player == null)
-            _player = GameObject.FindGameObjectWithTag("Player");
+        {
+            _player = PlayerController.Instance != null
+                ? PlayerController.Instance.gameObject
+                : FindAnyObjectByType<PlayerController>()?.gameObject;
+        }
 
         IgnorePlayerCollision();
     }

@@ -26,7 +26,7 @@ public class TargetInfoUI : MonoBehaviour
 
     private void Start()
     {
-        var player = GameObject.FindGameObjectWithTag("Player");
+        var player = PlayerController.Instance != null ? PlayerController.Instance.gameObject : null;
         if (player != null)
         {
             _targetingSystem = player.GetComponent<TargetingSystem>();

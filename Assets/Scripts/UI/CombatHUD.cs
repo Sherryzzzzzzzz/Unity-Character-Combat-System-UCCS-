@@ -57,7 +57,7 @@ public class CombatHUD : SingletonPatternMonoBase<CombatHUD>
     private void Start()
     {
         // 查找玩家引用
-        var player = GameObject.FindGameObjectWithTag("Player");
+        var player = PlayerController.Instance != null ? PlayerController.Instance.gameObject : null;
         if (player != null)
         {
             _playerModel = player.GetComponent<PlayerModel>();

@@ -75,10 +75,14 @@ public class BTreeRunner : MonoBehaviour, IBTRunner
         Blackboard.Initialize(treeAsset.blackboard);
 
         // 缓存 player 引用（只在 Play 时查找一次，不在每帧 Update 里找）
+        // ★ 用 PlayerController 单例替代 FindGameObjectWithTag("Player")：
+        //   "Player" 是 Layer 而非 Tag（TagManager 未定义），FindGameObjectWithTag 会抛异常中断 Play
         if (_cachedPlayer == null)
         {
-            var playerGo = GameObject.FindGameObjectWithTag("Player");
-            if (playerGo != null) _cachedPlayer = playerGo.transform;
+            if (PlayerController.Instance != null)
+                _cachedPlayer = PlayerController.Instance.transform;
+            else
+                _cachedPlayer = FindAnyObjectByType<PlayerController>()?.transform;
         }
         if (_cachedPlayer != null) Blackboard.Set("player", _cachedPlayer);
 
