@@ -17,12 +17,12 @@ public abstract class BTNode
     [System.NonSerialized] protected BTNodeState _state = BTNodeState.Inactive;
 
     /// <summary>所属的 BTreeRunner 引用（用于访问黑板）</summary>
-    [System.NonSerialized] protected BTreeRunner _runner;
+    [System.NonSerialized] protected IBTRunner _runner;
 
     public BTNodeState State => _state;
 
     /// <summary>进入节点（首次 Tick 前调用）</summary>
-    public virtual void OnEnter(BTreeRunner runner)
+    public virtual void OnEnter(IBTRunner runner)
     {
         _runner = runner;
         _state = BTNodeState.Running;

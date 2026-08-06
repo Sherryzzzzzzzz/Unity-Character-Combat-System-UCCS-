@@ -54,16 +54,35 @@ public class EnemyModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorControl
 
     private EnemyAnimationDriver _animDriver;
     private EnemySkillComponent _skillComp;
+    private HitReactionController _hitReaction; // ★ P10: 击飞期间抑制自身重力
 
     private void Awake()
     {
         cc = GetComponent<CharacterController>();
         _player = GameObject.FindGameObjectWithTag("Player");
         bTreeRunner = GetComponent<BTreeRunner>();
+
+        // ★ 自动装配：场景敌人若未挂 BTreeRunner，运行时自动添加并加载 AI 树资产
+        //   （自研行为树已替换 Behavior Designer）
+        if (bTreeRunner == null)
+        {
+            bTreeRunner = gameObject.AddComponent<BTreeRunner>();
+#if UNITY_EDITOR
+            if (bTreeRunner.treeAsset == null)
+            {
+                var aiAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<BTreeAsset>(
+                    "Assets/Data/AI/Enemy_Aggressive_BTree.asset");
+                if (aiAsset != null)
+                    bTreeRunner.treeAsset = aiAsset;
+            }
+#endif
+        }
+
         _hbm = GetComponent<HurtBoxManager>();
         _attributes = GetComponent<AttributeSet>();
         _animDriver = GetComponent<EnemyAnimationDriver>();
         _skillComp = GetComponent<EnemySkillComponent>();
+        _hitReaction = GetComponent<HitReactionController>();
 
         if (_attributes != null)
             _attributes.OnDeath += OnDeath;
@@ -229,8 +248,8 @@ public class EnemyModel : MonoBehaviour, IStateOwner, Parryable.IBehaviorControl
             }
         }
 
-        // ── 持续下压力 ──
-        if (cc != null && !cc.isGrounded)
+        // ── 持续下压力（★ P10: 被击飞期间由 HitReactionController 的击飞物理接管，避免双重重力）──
+        if (cc != null && !cc.isGrounded && (_hitReaction == null || !_hitReaction.IsLaunched))
         {
             cc.Move(new Vector3(0, -9.81f * Time.deltaTime, 0));
         }

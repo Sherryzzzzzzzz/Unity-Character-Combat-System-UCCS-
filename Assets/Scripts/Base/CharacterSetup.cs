@@ -87,7 +87,21 @@ public class CharacterSetup : MonoBehaviour
             EnsureComponent<EnemySkillComponent>(root);
             EnsureComponent<EnemyAnimationData>(root);
             EnsureComponent<EnemyAnimationDriver>(root);
-            EnsureComponent<BehaviorDesigner.Runtime.BehaviorTree>(root);
+
+            // ★ 敌人 AI：自研行为树（已替换 Behavior Designer）
+            var btreeRunner = EnsureComponent<BTreeRunner>(root);
+#if UNITY_EDITOR
+            if (btreeRunner.treeAsset == null)
+            {
+                var aiAsset = UnityEditor.AssetDatabase.LoadAssetAtPath<BTreeAsset>(
+                    "Assets/Data/AI/Enemy_Aggressive_BTree.asset");
+                if (aiAsset != null)
+                {
+                    btreeRunner.treeAsset = aiAsset;
+                    UnityEditor.EditorUtility.SetDirty(btreeRunner);
+                }
+            }
+#endif
 
             Debug.Log($"[CharacterSetup] Enemy setup complete on '{root.name}'. {root.GetComponents<Component>().Length} components attached.");
         }

@@ -27,7 +27,7 @@ public class BTA_MoveTo : BTAction
     private Vector3 _targetPos;
     private bool _started;
 
-    public override void OnEnter(BTreeRunner runner)
+    public override void OnEnter(IBTRunner runner)
     {
         base.OnEnter(runner);
         _model = runner.GetComponent<EnemyModel>();

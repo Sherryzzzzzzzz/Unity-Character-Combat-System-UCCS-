@@ -10,7 +10,7 @@ public abstract class BTComposite : BTNode
     /// <summary>当前执行到第几个子节点</summary>
     protected int _currentIndex;
 
-    public override void OnEnter(BTreeRunner runner)
+    public override void OnEnter(IBTRunner runner)
     {
         base.OnEnter(runner);
         _currentIndex = 0;
@@ -110,7 +110,7 @@ public class BTRandomSelector : BTComposite
 
     private int _selectedIndex = -1;
 
-    public override void OnEnter(BTreeRunner runner)
+    public override void OnEnter(IBTRunner runner)
     {
         base.OnEnter(runner);
         _selectedIndex = PickWeightedRandom();

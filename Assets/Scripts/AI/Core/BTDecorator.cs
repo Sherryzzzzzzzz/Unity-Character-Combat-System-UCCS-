@@ -6,7 +6,7 @@ public abstract class BTDecorator : BTNode
     [SerializeReference]
     public BTNode child;
 
-    public override void OnEnter(BTreeRunner runner)
+    public override void OnEnter(IBTRunner runner)
     {
         base.OnEnter(runner);
         child?.Reset();
@@ -59,7 +59,7 @@ public class BTRepeater : BTDecorator
 
     private int _executedCount;
 
-    public override void OnEnter(BTreeRunner runner)
+    public override void OnEnter(IBTRunner runner)
     {
         base.OnEnter(runner);
         _executedCount = 0;
@@ -110,7 +110,7 @@ public class BTWait : BTDecorator
 
     private float _timer;
 
-    public override void OnEnter(BTreeRunner runner)
+    public override void OnEnter(IBTRunner runner)
     {
         base.OnEnter(runner);
         _timer = 0f;

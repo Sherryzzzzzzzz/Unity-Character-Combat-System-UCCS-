@@ -25,7 +25,7 @@ public class BTA_WaitForCondition : BTAction
 
     private float _timer;
 
-    public override void OnEnter(BTreeRunner runner)
+    public override void OnEnter(IBTRunner runner)
     {
         base.OnEnter(runner);
         _timer = 0f;

@@ -13,7 +13,7 @@ public class BTA_LookAtPlayer : BTAction
     private Transform _playerTransform;
     private Transform _selfTransform;
 
-    public override void OnEnter(BTreeRunner runner)
+    public override void OnEnter(IBTRunner runner)
     {
         base.OnEnter(runner);
         _selfTransform = runner.transform;

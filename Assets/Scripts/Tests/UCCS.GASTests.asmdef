@@ -2,7 +2,8 @@
     "name": "UCCS.GASTests",
     "rootNamespace": "",
     "references": [
-        "UCCS.GASCore"
+        "UCCS.GASCore",
+        "UCCS.BT"
     ],
     "includePlatforms": [
         "Editor"

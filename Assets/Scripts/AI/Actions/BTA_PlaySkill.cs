@@ -11,7 +11,7 @@ public class BTA_PlaySkill : BTAction
     private ISkillPlayer _skillPlayer;
     private bool _skillFinished;
 
-    public override void OnEnter(BTreeRunner runner)
+    public override void OnEnter(IBTRunner runner)
     {
         base.OnEnter(runner);
 
