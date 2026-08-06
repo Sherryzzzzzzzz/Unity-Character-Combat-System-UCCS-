@@ -263,17 +263,17 @@ if (mod.Source != null)               // IStackCountSource（解耦接口）
 ```mermaid
 flowchart TD
     A["ApplyEffectSpec(spec)"] --> B{Application Tags 检查}
-    B -->|requiredTags/blockedTags 不满足| X["拒绝"]
+    B -->|"requiredTags/blockedTags 不满足"| X["拒绝"]
     B -->|通过| C{Immunity 查询}
     C -->|免疫| X
     C -->|不免疫| D["RemoveGameplayEffectsWithTags 清理"]
     D --> E{DurationPolicy}
-    E -->|Instant| F["ExecutionCalculation 或默认公式<br/>→ 直接改 BaseValue<br/>→ NotifyCueExecute"]
-    E -->|Duration/Infinite| G["堆叠检查"]
-    G --> G1["None → 重复施加拒绝"]
-    G --> G2["RefreshDuration → 刷新剩余时间"]
-    G --> G3["AddStacks → 层数+1，overflowPolicy"]
-    G2 --> H["事务性施加：<br/>①创建 ActiveGameplayEffect<br/>②注册属性 Modifiers<br/>③授予 Tags<br/>④失败 → 完整回滚(128行)"]
+    E -->|Instant| F["ExecutionCalculation 或默认公式<br/>直接改 BaseValue<br/>NotifyCueExecute"]
+    E -->|"Duration/Infinite"| G["堆叠检查"]
+    G --> G1["None · 重复施加拒绝"]
+    G --> G2["RefreshDuration · 刷新剩余时间"]
+    G --> G3["AddStacks · 层数+1, overflowPolicy"]
+    G2 --> H["事务性施加：<br/>1.创建 ActiveGameplayEffect<br/>2.注册属性 Modifiers<br/>3.授予 Tags<br/>4.失败则完整回滚(128行)"]
     H --> I["周期 Tick 注册（period>0）"]
     I --> J["Grant Abilities + NotifyCueAdd + OnInitialApply"]
 ```

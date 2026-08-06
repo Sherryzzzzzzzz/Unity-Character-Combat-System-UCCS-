@@ -255,12 +255,12 @@ public override void Enter(object parameter = null)
 ```mermaid
 flowchart LR
     ATK["PlayerAttackState.Update"] --> D{按翻滚?}
-    D -->|是 + 取消窗口允许 Dodge| DODGE["OnDodgeButtonPressed 翻滚"]
+    D -->|"是 · 允许Dodge"| DODGE["OnDodgeButtonPressed 翻滚"]
     D -->|否| M{有移动输入?}
-    M -->|是 + 取消窗口允许 Move| RET["ReturnToPreviousState 回到地面/锁敌"]
+    M -->|"是 · 允许Move"| RET["ReturnToPreviousState 回到地面或锁敌"]
     M -->|否| G{按格挡?}
-    G -->|是 + 取消窗口允许 Guard| GUARD["StopAndCleanup → PlayerState.guard"]
-    G -->|否| COMBO{按攻击? → 加瞬态输入 Tag}
+    G -->|"是 · 允许Guard"| GUARD["StopAndCleanup 进入格挡状态"]
+    G -->|否| COMBO{按攻击? 加瞬态输入Tag}
     COMBO --> POLL["PlayerSkillComponent.PollComboWindows 每帧消费"]
 ```
 
