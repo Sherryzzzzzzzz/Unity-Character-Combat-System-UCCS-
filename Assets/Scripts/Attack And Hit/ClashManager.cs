@@ -25,13 +25,20 @@ public class ClashManager : MonoBehaviour
     public int clashSparkCount = 5;
     [Tooltip("额外金属音效（可选，与 clashSound 同时播放形成厚实金属感）")]
     public AudioClip clashSoundExtra;
+    [Tooltip("★ 拼刀镜头最短间隔（秒）：连续拼刀时不重复切镜头，防止镜头反复切换/畸变。\n特效与慢动作不受影响，仅跳过特写镜头")]
+    public float clashCameraCooldown = 1.2f;
 
     // --- 新增：用于 LookAt 的虚拟目标 ---
     private Transform _clashLookAtTarget;
 
     // --- 内部引用 ---
     private AudioSource audioSource;
-    public float freezeDuration = 0.15f; 
+    public float freezeDuration = 0.15f;
+
+    // ★ 拼刀镜头冷却 + blend 瞬切（修复慢动作下 blend 被 timeScale 拖长导致摄像头畸变）
+    private float _lastClashCameraTime = -999f;
+    private CinemachineBrain _brain;
+    private float _originalBlendTime = -1f; 
 
     private void Awake()
     {
@@ -100,7 +107,7 @@ public class ClashManager : MonoBehaviour
         unitA.FreezeAnimation();
         unitB.FreezeAnimation();
 
-        // 3. 切换到对决镜头
+        // 3. 切换到对决镜头（带冷却 + blend 瞬切，避免频繁切换/慢动作拖长过渡导致畸变）
         SwitchToClashCamera(unitA_GO.transform, unitB_GO.transform);
 
         // 4. 通过 CombatCameraManager 触发拼刀震屏 + FOV Kick
@@ -152,6 +159,11 @@ public class ClashManager : MonoBehaviour
             return;
         }
 
+        // ★ 镜头冷却：间隔内不重复切（特效/慢动作仍触发）
+        if (Time.time - _lastClashCameraTime < clashCameraCooldown)
+            return;
+        _lastClashCameraTime = Time.time;
+
         // 1. 计算中心点和方向
         Vector3 centerPoint = (targetA.position + targetB.position) / 2;
         Vector3 direction = (targetB.position - targetA.position).normalized;
@@ -159,7 +171,7 @@ public class ClashManager : MonoBehaviour
         // 2. 移动我们创建的虚拟目标到中心点
         _clashLookAtTarget.position = centerPoint;
 
-        // 3. *** 修复 1：将 LookAt 属性设置为我们的虚拟目标 Transform ***
+        // 3. 将 LookAt 属性设置为我们的虚拟目标 Transform
         clashCamera.LookAt = _clashLookAtTarget;
         
         // 4. 计算并设置相机的位置
@@ -168,6 +180,17 @@ public class ClashManager : MonoBehaviour
         if (sideDirection.sqrMagnitude < 0.01f) sideDirection = targetA.right;
 
         clashCamera.transform.position = centerPoint - sideDirection * 5f + Vector3.up * 1.5f;
+
+        // ★ 瞬切：临时把 Cinemachine Brain 的默认 blend 设为 0。
+        //   根因：Brain 的 m_IgnoreTimeScale=0，拼刀慢动作(timeScale≈0.05)会把 0.3s blend
+        //   拖长 20 倍(≈6s)，镜头卡在过渡中间 → 摄像头畸变/滑动。
+        if (_brain == null)
+            _brain = FindFirstObjectByType<CinemachineBrain>();
+        if (_brain != null && _originalBlendTime < 0f)
+        {
+            _originalBlendTime = _brain.m_DefaultBlend.m_Time;
+            _brain.m_DefaultBlend.m_Time = 0f; // 瞬切，无过渡
+        }
 
         // 5. 激活对决相机，Cinemachine 会自动处理切换
         clashCamera.gameObject.SetActive(true);
@@ -181,6 +204,13 @@ public class ClashManager : MonoBehaviour
         if (clashCamera != null)
         {
             clashCamera.gameObject.SetActive(false);
+        }
+
+        // ★ 还原 Brain 默认 blend 时间（切回主相机用正常过渡）
+        if (_brain != null && _originalBlendTime >= 0f)
+        {
+            _brain.m_DefaultBlend.m_Time = _originalBlendTime;
+            _originalBlendTime = -1f;
         }
 
         // ★ P15: 恢复主相机后重新评估锁敌状态（若拼刀前处于锁敌，恢复锁敌机位与阻尼）

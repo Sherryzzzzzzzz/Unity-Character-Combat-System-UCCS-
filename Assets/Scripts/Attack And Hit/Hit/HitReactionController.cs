@@ -33,9 +33,9 @@ public class HitReactionController : MonoBehaviour
 
     [Header("击飞 (P10)")]
     [Tooltip("击飞重力加速度（负值，绝对值越大坠落越快）")]
-    public float launchGravity = -14f;
+    public float launchGravity = -10f;
     [Tooltip("★ 全局最低滞空时间（秒）：击飞后保证至少浮空这么久再允许落地（连招窗口的下限）。\n技能资产 AttackData.minAirTime > 0 时以资产为准")]
-    public float minLaunchAirTime = 1.2f;
+    public float minLaunchAirTime = 1.8f;
     [Tooltip("击飞滞空动画名（在 animationSet 中查找，留空=不播）")]
     public string airAnimationName = "Air";
     [Tooltip("落地受身动画名（在 animationSet 中查找，留空=不播）")]
