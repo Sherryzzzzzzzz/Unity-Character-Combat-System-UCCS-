@@ -3,8 +3,9 @@ using UnityEngine;
 using Cinemachine;
 
 /// <summary>
-/// 统一命中反馈管理器 — 协调 HitStop + VFX + SFX + Camera FX
-/// 挂载在每个可被击中的角色上
+/// 统一命中反馈管理器 — 协调 HitStop + VFX + SFX + Camera FX。
+/// 挂载在每个可被击中的角色上。
+/// 改进：震屏与 FOV Kick 通过 CombatCameraManager 统一调度，避免多源冲突。
 /// </summary>
 public class HitFeedbackManager : MonoBehaviour
 {
@@ -31,7 +32,7 @@ public class HitFeedbackManager : MonoBehaviour
     public float blowShake = 1.2f;
 
     private HitStopController _hitStop;
-    private CinemachineImpulseSource _impulseSource;
+    private CinemachineImpulseSource _impulseSource; // fallback
     private AudioSource _audioSource;
     private SkinnedMeshRenderer[] _renderers;
 
@@ -51,16 +52,23 @@ public class HitFeedbackManager : MonoBehaviour
     {
         _hitStop.ApplyVictimHitStop(forceType);
 
-        // VFX — 优先使用配置的 Prefab，否则用默认粒子
-        var vfx = GetVFX(forceType);
-        if (vfx != null)
+        // VFX — 优先走全局 VFX 池（自带分档粒子 + 程序化冲击波），其次使用配置的 Prefab，最后默认粒子
+        var pool = UnityEngine.Object.FindFirstObjectByType<GlobalVFXPool>();
+        if (pool != null)
         {
-            Instantiate(vfx, hitPoint, Quaternion.LookRotation(-attackDir));
+            pool.SpawnHitVFX(forceType, hitPoint, Quaternion.LookRotation(-attackDir));
         }
         else
         {
-            // 默认 fallback：彩色闪光粒子
-            PlayDefaultHitParticle(forceType, hitPoint, attackDir);
+            var vfx = GetVFX(forceType);
+            if (vfx != null)
+            {
+                Instantiate(vfx, hitPoint, Quaternion.LookRotation(-attackDir));
+            }
+            else
+            {
+                PlayDefaultHitParticle(forceType, hitPoint, attackDir);
+            }
         }
 
         // SFX
@@ -68,10 +76,29 @@ public class HitFeedbackManager : MonoBehaviour
         if (sfx != null && _audioSource != null)
             _audioSource.PlayOneShot(sfx);
 
-        // Camera Shake
+        // ── Camera Shake：优先走 CombatCameraManager 统一调度 ──
         float shake = GetShake(forceType);
-        if (_impulseSource != null && shake > 0f)
-            _impulseSource.GenerateImpulseWithVelocity(attackDir * shake);
+        if (shake > 0f)
+        {
+            var mgr = CombatCameraManager.Instance;
+            if (mgr != null)
+            {
+                int priority = forceType switch
+                {
+                    AttackForceType.Blow => 3,
+                    AttackForceType.Heavy => 2,
+                    AttackForceType.Medium => 1,
+                    _ => 0
+                };
+                mgr.TriggerShake(attackDir, shake, priority);
+                mgr.TriggerFOVKick(forceType);
+            }
+            else if (_impulseSource != null)
+            {
+                // fallback：直接发 Impulse（如果场景没配 CombatCameraManager）
+                _impulseSource.GenerateImpulseWithVelocity(attackDir * shake);
+            }
+        }
 
         // Hit Flash — 优先使用自定义材质，否则用 emission 闪白
         if (hitFlashMaterial != null && _renderers != null)

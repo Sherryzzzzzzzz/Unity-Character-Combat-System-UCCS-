@@ -54,15 +54,20 @@ public class ShockwaveEffect : MonoBehaviour
 
         var ps = psGo.AddComponent<ParticleSystem>();
 
+        // ★ 修复：ParticleSystem 的 playOnAwake 默认 true，AddComponent 后立即自动播放，
+        //   此时再改 duration 会抛 “Setting the duration while system is still playing”。
+        //   先停掉并显式关闭自动播放，再配置参数。
+        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
         // ── Main ──
         var main = ps.main;
+        main.playOnAwake = false;
         main.duration = 1f;
         main.startLifetime = duration * 0.8f;
         main.startSpeed = radius / (duration * 0.8f);
         main.startSize = new ParticleSystem.MinMaxCurve(0.15f, 0.5f);
         main.startColor = color;
         main.simulationSpace = ParticleSystemSimulationSpace.Local;
-        main.playOnAwake = true;
         main.loop = false;
         main.gravityModifier = 0.1f;
 

@@ -6,6 +6,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
+using Animancer;
 using Object = UnityEngine.Object;
 
 public class CharacterCombatConfigWindow : EditorWindow
@@ -20,6 +21,7 @@ public class CharacterCombatConfigWindow : EditorWindow
     private VisualElement _contentPanel;
     private VisualElement _playerPanel;
     private VisualElement _enemyPanel;
+    private VisualElement _hitPanel;
     private VisualElement _playerChainPanel;
     private VisualElement _enemyTreePanel;
     private int _activeTab;
@@ -85,12 +87,14 @@ public class CharacterCombatConfigWindow : EditorWindow
         _root.Add(tabs);
         tabs.Add(MakeTabButton("玩家配置", 0));
         tabs.Add(MakeTabButton("敌人配置", 1));
+        tabs.Add(MakeTabButton("受击动画", 2));
 
         _contentPanel = new VisualElement { style = { flexGrow = 1, marginTop = 8 } };
         _root.Add(_contentPanel);
 
         _playerPanel = MakeColumn("玩家配置");
         _enemyPanel = MakeColumn("敌人配置");
+        _hitPanel = MakeColumn("受击动画配置");
         _playerChainPanel = MakeColumn("玩家连招预览");
         _enemyTreePanel = MakeColumn("敌人行为树");
 
@@ -115,8 +119,11 @@ public class CharacterCombatConfigWindow : EditorWindow
             case 0:
                 _contentPanel.Add(_playerPanel);
                 break;
-            default:
+            case 1:
                 _contentPanel.Add(_enemyPanel);
+                break;
+            default:
+                _contentPanel.Add(_hitPanel);
                 break;
         }
     }
@@ -179,6 +186,7 @@ public class CharacterCombatConfigWindow : EditorWindow
     {
         BuildPlayerPanel();
         BuildEnemyPanel();
+        BuildHitPanel();
         ShowActiveTab();
     }
 
@@ -259,6 +267,214 @@ public class CharacterCombatConfigWindow : EditorWindow
         _enemyPanel.Add(_enemyTreePanel);
     }
 
+    // ================================================================
+    // 受击动画配置页签
+    // ================================================================
+
+    private HitReactionController GetSelectedHRC()
+    {
+        if (_player != null)
+        {
+            var hrc = _player.GetComponent<HitReactionController>();
+            if (hrc != null) return hrc;
+        }
+        if (_enemy != null)
+        {
+            var hrc = _enemy.GetComponent<HitReactionController>();
+            if (hrc != null) return hrc;
+        }
+        return null;
+    }
+
+    private void BuildHitPanel()
+    {
+        _hitPanel.Clear();
+        _hitPanel.Add(Header("受击动画配置"));
+
+        var hrc = GetSelectedHRC();
+        if (hrc == null)
+        {
+            _hitPanel.Add(new HelpBox("请在上方选择玩家或敌人（需带 HitReactionController 组件）。", HelpBoxMessageType.Info));
+            return;
+        }
+
+        _hitPanel.Add(new Label($"角色：{hrc.gameObject.name}"));
+
+        // ── 动画集资产 ──
+        if (hrc.animationSet == null)
+        {
+            _hitPanel.Add(new HelpBox("HitReactionController 未分配 animationSet，请先拖入受击动画集资产（如 ScriptObjects/Enemy/Animation.asset）。", HelpBoxMessageType.Warning));
+        }
+        else
+        {
+            _hitPanel.Add(Section($"动画集：{hrc.animationSet.name}"));
+            BuildHitSlotGrid(_hitPanel, hrc.animationSet);
+            var openBtn = new Button(() => Selection.activeObject = hrc.animationSet) { text = "在 Inspector 中打开动画集（16 槽位网格）" };
+            openBtn.style.marginTop = 4;
+            _hitPanel.Add(openBtn);
+        }
+
+        // ── 受击参数 ──
+        var hrcSo = new SerializedObject(hrc);
+        hrcSo.Update();
+        _hitPanel.Add(Section("受击时长"));
+        AddProperty(_hitPanel, hrcSo, "hitDurationLight", "轻受击超时");
+        AddProperty(_hitPanel, hrcSo, "hitDurationMedium", "中受击超时");
+        AddProperty(_hitPanel, hrcSo, "hitDurationHeavy", "重受击超时");
+        AddProperty(_hitPanel, hrcSo, "hitDurationBlow", "吹飞受击超时");
+        AddProperty(_hitPanel, hrcSo, "hitRecoveryFadeTime", "受击结束淡出");
+
+        _hitPanel.Add(Section("击退"));
+        AddProperty(_hitPanel, hrcSo, "knockbackDuration", "击退时长");
+        AddProperty(_hitPanel, hrcSo, "knockbackSpeedMedium", "击退力度-中");
+        AddProperty(_hitPanel, hrcSo, "knockbackSpeedHeavy", "击退力度-重");
+        AddProperty(_hitPanel, hrcSo, "knockbackSpeedBlow", "击退力度-吹飞");
+
+        _hitPanel.Add(Section("击飞"));
+        AddProperty(_hitPanel, hrcSo, "launchGravity", "击飞重力");
+        AddProperty(_hitPanel, hrcSo, "airAnimationName", "滞空动画名");
+        AddProperty(_hitPanel, hrcSo, "landAnimationName", "落地受身动画名");
+        hrcSo.ApplyModifiedProperties();
+
+        // ── 受击动画链 ──
+        _hitPanel.Add(Section("受击动画链"));
+        AddProperty(_hitPanel, hrcSo, "useHitChain", "启用受击链（连续受击逐级升级）");
+        _hitPanel.Add(new HelpBox(
+            "受击链：受击动画播放中再次被击中 → 播放下一个强度的动画。\n" +
+            "轻 → 中 → 重 → 吹飞（封顶），方向仍按攻击来源自动匹配（F/B/L/R）。\n" +
+            "例：轻击后立刻轻击 = 先 F_L 再 F_M；轻击后重击 = 直接 F_H。\n" +
+            "关闭后恢复原逻辑：弱受击不打断强受击、同级重新播放。",
+            HelpBoxMessageType.Info));
+
+        // ── 预览 ──
+        BuildHitPreview(_hitPanel, hrc);
+    }
+
+    /// <summary>16 槽位网格：每槽一个 clip 选择器，就地配置/替换</summary>
+    private void BuildHitSlotGrid(VisualElement parent, ExpandableAnimationSet set)
+    {
+        var so = new SerializedObject(set);
+        so.Update();
+        var anims = so.FindProperty("animations");
+        if (anims == null)
+        {
+            parent.Add(new HelpBox("动画集缺少 animations 列表。", HelpBoxMessageType.Error));
+            return;
+        }
+
+        foreach (var d in "FLRB")
+        {
+            var row = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 2 } };
+            var dirLabel = new Label(d.ToString());
+            dirLabel.style.width = 18;
+            dirLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            row.Add(dirLabel);
+
+            foreach (var s in "LMHB")
+            {
+                string slotName = $"{d}_{s}";
+                int idx = FindHitEntryIndex(anims, slotName);
+                var field = new ObjectField(slotName) { objectType = typeof(AnimationClip), allowSceneObjects = false };
+                field.style.flexGrow = 1;
+                field.style.marginRight = 4;
+
+                if (idx >= 0)
+                {
+                    var clipProp = anims.GetArrayElementAtIndex(idx).FindPropertyRelative("animationClip._Clip");
+                    field.value = clipProp.objectReferenceValue as AnimationClip;
+                    string captured = slotName;
+                    field.RegisterValueChangedCallback(evt =>
+                    {
+                        var so2 = new SerializedObject(set);
+                        so2.Update();
+                        int i2 = FindHitEntryIndex(so2.FindProperty("animations"), captured);
+                        if (i2 >= 0)
+                        {
+                            var p = so2.FindProperty("animations").GetArrayElementAtIndex(i2)
+                                .FindPropertyRelative("animationClip._Clip");
+                            p.objectReferenceValue = evt.newValue;
+                            so2.ApplyModifiedProperties();
+                            EditorUtility.SetDirty(set);
+                        }
+                    });
+                }
+                else
+                {
+                    field.SetEnabled(false);
+                    field.tooltip = "槽位缺失，点击下方按钮补齐";
+                }
+                row.Add(field);
+            }
+            parent.Add(row);
+        }
+
+        var fillBtn = new Button(() => FillMissingHitSlots(set)) { text = "补齐缺失的受击槽位" };
+        fillBtn.style.marginTop = 4;
+        parent.Add(fillBtn);
+    }
+
+    private static int FindHitEntryIndex(SerializedProperty anims, string name)
+    {
+        if (anims == null) return -1;
+        for (int i = 0; i < anims.arraySize; i++)
+        {
+            var n = anims.GetArrayElementAtIndex(i).FindPropertyRelative("animationName").stringValue;
+            if (n == name) return i;
+        }
+        return -1;
+    }
+
+    private static void FillMissingHitSlots(ExpandableAnimationSet set)
+    {
+        var so = new SerializedObject(set);
+        so.Update();
+        var anims = so.FindProperty("animations");
+        foreach (var d in "FLRB")
+            foreach (var s in "LMHB")
+            {
+                string name = $"{d}_{s}";
+                if (FindHitEntryIndex(anims, name) >= 0) continue;
+                anims.arraySize++;
+                var element = anims.GetArrayElementAtIndex(anims.arraySize - 1);
+                element.FindPropertyRelative("animationName").stringValue = name;
+                element.FindPropertyRelative("animationClip._FadeDuration").floatValue = 0.1f;
+                element.FindPropertyRelative("animationClip._Speed").floatValue = 1f;
+            }
+        so.ApplyModifiedProperties();
+        EditorUtility.SetDirty(set);
+        AssetDatabase.SaveAssets();
+        Debug.Log($"已补齐 {set.name} 的缺失受击槽位。");
+    }
+
+    /// <summary>在场景角色的受击层预览动画（Play 模式下）</summary>
+    private void BuildHitPreview(VisualElement parent, HitReactionController hrc)
+    {
+        parent.Add(Section("预览（Play 模式下生效）"));
+        var nameField = new TextField("动画名") { value = "B_M" };
+        parent.Add(nameField);
+        var previewBtn = new Button(() =>
+        {
+            var animancer = hrc.GetComponent<AnimancerComponent>();
+            if (animancer == null || hrc.animationSet == null)
+            {
+                Debug.LogWarning("缺少 AnimancerComponent 或 animationSet，无法预览。");
+                return;
+            }
+            var clip = hrc.animationSet.GetClip(nameField.value);
+            if (clip == null) return;
+            if (animancer.Layers.Count <= hrc.hitLayerIndex)
+                animancer.Layers.Count = hrc.hitLayerIndex + 1;
+            var layer = animancer.Layers[hrc.hitLayerIndex];
+            var state = layer.Play(clip, 0.1f, FadeMode.FromStart);
+            state.TimeD = 0;
+            layer.SetWeight(1f);
+            Debug.Log($"预览受击动画：{nameField.value}");
+        }) { text = "播放预览" };
+        previewBtn.style.marginTop = 4;
+        parent.Add(previewBtn);
+        parent.Add(new HelpBox("输入 F_L / B_M / Air / Land 等动画名后点击播放，在场景角色上查看效果。", HelpBoxMessageType.Info));
+    }
+
     private void BuildPlayerChainPanel()
     {
         _playerChainPanel.Clear();
@@ -300,6 +516,10 @@ public class CharacterCombatConfigWindow : EditorWindow
         var editBtn = new Button(() => SkillEditorTimelineWindow.OpenSkill(skill)) { text = "打开编辑器" };
         editBtn.style.marginRight = 4;
         btnRow.Add(editBtn);
+
+        var graphBtn = new Button(() => ComboChainGraphWindow.OpenWithSkill(skill)) { text = "在图中查看连招链" };
+        graphBtn.style.marginRight = 4;
+        btnRow.Add(graphBtn);
 
         var previewGo = _player != null ? _player.gameObject : null;
         if (previewGo != null)

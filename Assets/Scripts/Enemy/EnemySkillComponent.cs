@@ -133,6 +133,8 @@ public class EnemySkillComponent : MonoBehaviour, IClashable, UCCS.ISkillPlayer
         if (_attackLayer != null && skill.animationClip != null)
         {
             var state = _attackLayer.Play(skill.animationClip, 0.1f, FadeMode.FromStart);
+            // ★ 修复“打断后重播卡在被打断位置”：显式归零播放时间
+            state.TimeD = 0;
             _attackLayer.SetWeight(1f);
             
             // 【修改】为动画状态注册一个 OnEnd 回调
@@ -248,6 +250,20 @@ public class EnemySkillComponent : MonoBehaviour, IClashable, UCCS.ISkillPlayer
         OnSkillEnd?.Invoke();
     }
     
+    /// <summary>
+    /// ★ P9: 受击时立即让攻击层让位（停止并清零权重），
+    /// 避免攻击动画 0.25s 淡出期间与受击层权重混合（“边挥刀边挨打”）。
+    /// </summary>
+    public void ForceSuppressAttackLayer()
+    {
+        if (_attackLayer == null) return;
+        // ★ 只对层做权重清零（安全）。
+        //   绝不能对 CurrentState 调 Stop()：若该状态正处交叉淡化组（Play 的 FadeIn），
+        //   Stop 会把它从组里移除 → 组 FadeIn=null 且仍有 FadeOut → Animancer FadeGroup NRE（每帧），
+        //   导致整个动画系统崩溃、无法攻击。
+        _attackLayer.SetWeight(0f);
+    }
+
     // 【新增】在对象销毁时，广播停止消息
     private void OnDestroy()
     {

@@ -32,6 +32,9 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
     
     private readonly List<LoopEvent> activeLoopEvents = new List<LoopEvent>();
 
+    // ★ P7: 当前处于有效连招窗口的 ComboEvent。StartFrame 触发注册，窗口内每帧轮询输入。
+    private readonly List<ComboEvent> _activeComboWindows = new List<ComboEvent>();
+
     // 追踪已触发 OnStart 但未触发 OnEnd 的事件，用于 StopAndCleanup 时完整清理
     private readonly HashSet<ITimelineEventRuntime> _activeEvents = new HashSet<ITimelineEventRuntime>();
 
@@ -86,6 +89,14 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
     [Header("Clash Configuration")]
     [Tooltip("代表“拼刀硬直”的状态 Tag")]
     public GameplayTagSO clashStunTag;
+
+    [Header("追击跳 (P13)")]
+    [Tooltip("追击跳水平冲锋速度（m/s）。数值越大追得越快")]
+    public float chaseJumpSpeed = 7f;
+    [Tooltip("追击跳水平冲锋最长时间（秒）")]
+    public float chaseJumpDuration = 0.4f;
+
+    private Coroutine _chaseCoroutine;
     
     private bool _isClashed = false;
     
@@ -180,6 +191,9 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
             // 处理时间回溯（例如循环）时，也可能需要清理事件，暂时简化
         }
 
+        // ★ P7: 连招窗口轮询 —— 窗口 [StartFrame, EndFrame] 内任意帧按下都有效
+        PollComboWindows();
+
         // 动画结束检查
         if (isPlaying && state.IsPlaying && state.NormalizedTime >= 1.0f)
         {
@@ -205,7 +219,7 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
                     if (evt is CancelEvent cancel) _activeCancelEvents.Add(cancel);
                     if (evt is ComboEvent combo)
                     {
-                        HandleComboEvent(combo);
+                        RegisterComboWindow(combo); // ★ P7: 注册连招窗口，不再只在起始帧判一次
                     }
                 }
             }
@@ -224,23 +238,60 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
         }
     }
     
-    private void HandleComboEvent(ComboEvent combo)
+    /// <summary>
+    /// ★ P7: 注册连招窗口。ComboEvent 在 StartFrame 帧被触发时注册，
+    /// 窗口 [StartFrame, EndFrame] 内每一帧由 PollComboWindows 轮询输入。
+    /// 旧逻辑只在 StartFrame 那一帧判定一次（约 16ms 窗口），几乎不可能按准。
+    /// </summary>
+    private void RegisterComboWindow(ComboEvent combo)
     {
-        bool tagMatched = (combo.comboMode == ComboEvent.ComboMode.Normal_Cacheable)
-            ? tagComponent.ConsumeTag(combo.RequiredTag)
-            : tagComponent.HasTag(combo.RequiredTag);
+        if (combo == null || combo.nextSkill == null) return;
+        if (!_activeComboWindows.Contains(combo))
+            _activeComboWindows.Add(combo);
+    }
 
-        if (tagMatched && combo.nextSkill != null)
+    /// <summary>每帧轮询活跃连招窗口：窗口内任意帧输入命中即触发下一招（后注册的优先，符合设计顺序）</summary>
+    private void PollComboWindows()
+    {
+        if (_activeComboWindows.Count == 0) return;
+
+        for (int i = _activeComboWindows.Count - 1; i >= 0; i--)
         {
-            if (combo.comboMode == ComboEvent.ComboMode.Strict_Immediate)
-                tagComponent.ConsumeTag(combo.RequiredTag);
+            var combo = _activeComboWindows[i];
 
-            var model = GetComponent<PlayerModel>();
-            if (model != null) 
+            // 窗口结束：移除（EndFrame 为动画帧号）
+            if (currentFrame > combo.EndFrame)
             {
-                model.isComboChain = true;
+                _activeComboWindows.RemoveAt(i);
+                continue;
             }
-            PlaySkill(combo.nextSkill);
+
+            bool tagMatched = (combo.comboMode == ComboEvent.ComboMode.Normal_Cacheable)
+                ? tagComponent.ConsumeTag(combo.RequiredTag)
+                : tagComponent.HasTag(combo.RequiredTag);
+
+            if (tagMatched && combo.nextSkill != null)
+            {
+                if (combo.comboMode == ComboEvent.ComboMode.Strict_Immediate)
+                    tagComponent.ConsumeTag(combo.RequiredTag);
+
+                _activeComboWindows.RemoveAt(i);
+
+                var model = GetComponent<PlayerModel>();
+                if (model != null)
+                    model.isComboChain = true;
+
+                // ★ P13: 追击跳 —— 连招目标为空中技能且玩家在地面时，起跳进入空中攻击。
+                //   已增强：垂直起跳 + 水平向锁敌目标冲锋，保证贴近被击飞的敌人（而非原地直上直下）。
+                if (combo.nextSkill.isAirSkill && PlayerController.Instance != null && PlayerController.Instance.isGround)
+                {
+                    if (model != null)
+                        StartChaseJump(model);
+                }
+
+                PlaySkill(combo.nextSkill);
+                return; // 已触发连招，停止本轮轮询（防止同帧多个窗口重复触发）
+            }
         }
     }
 
@@ -254,14 +305,23 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
         if (skill == null) return;
         if (isSwitching) return;
 
-        if (isPlaying)
+        var model = GetComponent<PlayerModel>();
+
+        // ★ P8: 连招跟随（isComboChain）不打断动画层 —— Animancer 原生交叉淡化换动画，
+        //    避免 StopAndCleanup 的 0.25s 攻击层淡出造成“停旧播新”的断帧感。
+        //    但仍需清理上一段的活跃事件（判定盒等）与拼刀检测器。
+        bool isComboFollowUp = isPlaying && model != null && model.isComboChain;
+
+        if (isPlaying && !isComboFollowUp)
         {
             StopAndCleanup(true, false);
         }
+        else if (isComboFollowUp)
+        {
+            EndActiveEvents();
+        }
 
         isSwitching = true;
-
-        var model = GetComponent<PlayerModel>();
 
         // ★ 标记翻滚/闪避状态（免疫受击）
         if (model != null &&
@@ -281,6 +341,7 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
         activeLoopEvents.Clear();
         _activeCancelEvents.Clear();
         _activeEvents.Clear();
+        _activeComboWindows.Clear();
 
         if (skill.tracks != null)
         {
@@ -312,6 +373,9 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
             _AttackAnimation = skill.animationClip;
             float fadeDuration = (model != null && model.isComboChain) ? comboFadeInDuration : attackFadeInDuration;
             var animState = _AttackLayer.Play(_AttackAnimation, fadeDuration, FadeMode.FromStart);
+            // ★ 修复“打断后重播卡在被打断位置”：FromStart 会复用同 clip 的零权重状态（不重置时间），
+            //   显式把播放时间归零，保证每次都从头播放。
+            animState.TimeD = 0;
             _AttackLayer.SetWeight(1f);
 
             animState.Events(this).OnEnd = skill.animationClip.isLooping ? (Action)null : () =>
@@ -341,6 +405,13 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
     {
         if (!isPlaying) return;
 
+        // ★ 追击跳冲锋协程在技能停止时一并终止
+        if (_chaseCoroutine != null)
+        {
+            StopCoroutine(_chaseCoroutine);
+            _chaseCoroutine = null;
+        }
+
         // ★ 重置翻滚/闪避标记
         var playerModel = GetComponent<PlayerModel>();
         if (playerModel != null) playerModel.isDodging = false;
@@ -361,14 +432,7 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
         _activeCancelEvents.Clear();
 
         // 对所有已 OnStart 但未 OnEnd 的事件触发 OnEnd，确保 HitBoxEvent 等清理逻辑执行
-        foreach (var evt in _activeEvents)
-        {
-            try { evt.OnEnd(gameObject); }
-            catch (Exception e) { Debug.LogWarning($"PlayerSkillComponent: event OnEnd cleanup threw: {e}"); }
-        }
-        _activeEvents.Clear();
-        
-        foreach (var detector in _clashDetectors) detector.Deactivate();
+        EndActiveEvents();
 
         // 仅在进入 GuardState 时保留攻击层（OnSkillEnd 回调中可能已切入 guard）
         var modelForFade = GetComponent<PlayerModel>();
@@ -400,6 +464,81 @@ public class PlayerSkillComponent : MonoBehaviour, IClashable
 
     #endregion
     
+    /// <summary>触发所有已开始但未结束事件的 OnEnd（判定盒关闭等），并停用拼刀检测器</summary>
+    private void EndActiveEvents()
+    {
+        foreach (var evt in _activeEvents)
+        {
+            try { evt.OnEnd(gameObject); }
+            catch (Exception e) { Debug.LogWarning($"PlayerSkillComponent: event OnEnd cleanup threw: {e}"); }
+        }
+        _activeEvents.Clear();
+
+        foreach (var detector in _clashDetectors) detector.Deactivate();
+    }
+
+    /// <summary>
+    /// ★ P9: 受击时立即让攻击层让位（停止并清零权重），
+    /// 避免攻击动画 0.25s 淡出期间与受击层权重混合（“边挥刀边挨打”）。
+    /// </summary>
+    public void ForceSuppressAttackLayer()
+    {
+        if (_AttackLayer == null) return;
+        // ★ 只对层做权重清零（安全）。
+        //   绝不能对 CurrentState 调 Stop()：若该状态正处交叉淡化组（Play 的 FadeIn），
+        //   Stop 会把它从组里移除 → 组变成 FadeIn=null 且仍有 FadeOut → Animancer FadeGroup
+        //   在图形更新里抛 NullReferenceException（每帧），导致整个动画系统崩溃、无法攻击。
+        _AttackLayer.SetWeight(0f);
+    }
+
+    /// <summary>
+    /// ★ P13 增强：追击跳 = 垂直起跳 + 水平向锁敌目标冲锋。
+    /// 敌人被浮空招击飞时会水平后退约 1~1.5m，若只原地直跳，空中第一段会够不到；
+    /// 冲锋保证跳起时贴近敌人（接近后自动减速，避免冲过头）。
+    /// </summary>
+    public void StartChaseJump(PlayerModel model)
+    {
+        if (model == null) return;
+
+        // 垂直：起跳（略高于普通跳）
+        model.gravityVector.y = Mathf.Sqrt(model.gravity * -2.0f * model.jumpHeight * 1.2f);
+
+        // 水平：朝锁敌目标（优先）或面朝方向冲锋
+        Vector3 dir = transform.forward;
+        Transform target = null;
+        if (model.ts != null && model.ts.HasTarget && model.ts.CurrentTarget != null)
+            target = model.ts.CurrentTarget;
+
+        if (_chaseCoroutine != null) StopCoroutine(_chaseCoroutine);
+        _chaseCoroutine = StartCoroutine(ChaseRoutine(target, dir, chaseJumpSpeed, chaseJumpDuration));
+    }
+
+    private IEnumerator ChaseRoutine(Transform target, Vector3 fallbackDir, float speed, float maxDuration)
+    {
+        var cc = GetComponent<CharacterController>();
+        if (cc == null) yield break;
+
+        Vector3 dir = fallbackDir;
+        float elapsed = 0f;
+        while (elapsed < maxDuration)
+        {
+            // 有锁敌目标：动态朝向目标，接近后停止
+            if (target != null)
+            {
+                Vector3 toTarget = target.position - transform.position;
+                toTarget.y = 0f;
+                if (toTarget.sqrMagnitude < 1.2f * 1.2f) break; // 贴近敌人后停冲
+                if (toTarget.sqrMagnitude > 0.0001f)
+                    dir = toTarget.normalized;
+            }
+
+            cc.Move(dir * speed * Time.deltaTime);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+        _chaseCoroutine = null;
+    }
+
     #region Interfaces and Helpers
     
     public bool CanBeCanceledBy(CancelActionType actionType)

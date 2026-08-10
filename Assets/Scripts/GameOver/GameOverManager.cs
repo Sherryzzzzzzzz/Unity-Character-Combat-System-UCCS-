@@ -22,15 +22,16 @@ public class GameOverManager : MonoBehaviour
         var canvas = GetComponentInParent<Canvas>();
         if (canvas != null)
         {
-            if (deathText == null) deathText = CreateText(canvas.transform, "DeathText", "寄", 140, Color.red);
-            if (restartText == null) restartText = CreateText(canvas.transform, "RestartText", "开始", 60, Color.white);
+            if (deathText == null) deathText = CreateText(canvas.transform, "DeathText", "寄", 140, Color.red, false);
+            // 开始按钮的 Text 必须开启 raycastTarget，否则 Button 永远收不到点击
+            if (restartText == null) restartText = CreateText(canvas.transform, "RestartText", "开始", 60, Color.white, true);
         }
 
         if (deathText != null) deathText.gameObject.SetActive(false);
         if (restartText != null) restartText.gameObject.SetActive(false);
     }
 
-    Text CreateText(Transform parent, string name, string content, int size, Color color)
+    Text CreateText(Transform parent, string name, string content, int size, Color color, bool raycastTarget)
     {
         var go = new GameObject(name, typeof(Text));
         go.transform.SetParent(parent, false);
@@ -40,7 +41,7 @@ public class GameOverManager : MonoBehaviour
         t.alignment = TextAnchor.MiddleCenter;
         t.color = color;
         t.fontStyle = FontStyle.Bold;
-        t.raycastTarget = false;
+        t.raycastTarget = raycastTarget;
         t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
         var rt = go.GetComponent<RectTransform>();
@@ -72,6 +73,8 @@ public class GameOverManager : MonoBehaviour
         if (restartText != null)
         {
             restartText.gameObject.SetActive(true);
+            // 兜底：确保 Text 可被 EventSystem 射线命中，否则 Button 无法点击
+            restartText.raycastTarget = true;
             // 点击"开始"重试
             var btn = restartText.GetComponent<Button>() ?? restartText.gameObject.AddComponent<Button>();
             btn.onClick.RemoveAllListeners();
